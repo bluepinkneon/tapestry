@@ -1,811 +1,588 @@
 # Technical Design Document: Weave Ecosystem
 
-**Version**: 1.0  
+**Version**: 2.0  
 **Date**: August 13, 2025  
-**Authors**: Development Team  
-**Status**: Final Design
+**Status**: Implementation Ready
 
-## 1. Introduction
+## Executive Summary
 
-### 1.1 Purpose
-This document provides the comprehensive technical design for the Weave ecosystem on Tapestry L2 blockchain, detailing smart contract architecture, token mechanics, economic flows, and implementation specifications.
+The Weave ecosystem transforms personal journal entries into comic-style NFTs on Tapestry L2 blockchain. The protocol uses a dual-token economic model to track computational costs (DYE) and platform deficit (hTUSD), while providing users with time-based entitlements and enabling advertiser/vendor participation through wrapped time-sensitive bundles (CRONs).
 
-### 1.2 Scope
-- Smart contract specifications
-- Token implementations
-- Economic mechanisms
-- Backend integration requirements
-- Security considerations
-- Gas optimization strategies
+## 1. System Overview
 
-### 1.3 Definitions
-- **CRON**: Time-wrapped bundle containing WEAVE + DYE + [TUSD/hTUSD]
-- **WEAVE**: Soulbound token representing creation rights
-- **FIBER**: Final NFT output (comic-style journal entry)
-- **DYE**: Computational units for processing
-- **TUSD**: Tapestry USD - native stablecoin pegged 1:1 to USD via company bank account
-- **hTUSD**: Tapestry USD hole tracking platform deficit
-- **Spinning**: The act of unwrapping CRON to access WEAVE
+### 1.1 Core Concept
+Users receive free CRON tokens every 6 hours containing creation rights (WEAVE) and computational units (DYE). These CRONs expire in 24 hours, creating natural scarcity. Users "spin" CRONs to create soulbound WEAVEs, which are then processed by AI into FIBER NFTs (comic panels).
 
-## 2. System Architecture
+### 1.2 Economic Innovation
+- **Expired Inventory Monetization**: Expired CRONs return WEAVE to a pool, creating a secondary market
+- **Deficit Tracking**: hTUSD mints track platform costs; TUSD mints track revenue
+- **Self-Balancing**: DYE price = hTUSD supply / DYE supply (actual cost basis)
+- **No Auto-Burns**: Revenue accumulates as TUSD; monthly reconciliation by admin
 
-### 2.1 High-Level Overview
-```
-┌─────────────────────────────────────────────────────────┐
-│                     Tapestry L2                          │
-├─────────────────────────────────────────────────────────┤
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌────────┐ │
-│  │   CRON   │→ │  WEAVE   │→ │  FIBER   │  │  DYE   │ │
-│  │  Wrapper │  │Soulbound │  │   NFT    │  │ Units  │ │
-│  └──────────┘  └──────────┘  └──────────┘  └────────┘ │
-│                                                          │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌────────┐ │
-│  │  hTUSD   │  │   Pool   │  │ Factory  │  │Treasury│ │
-│  │  Deficit │  │   AMM    │  │Orchestr. │  │  TUSD  │ │
-│  └──────────┘  └──────────┘  └──────────┘  └────────┘ │
-└─────────────────────────────────────────────────────────┘
-                              ↕
-┌─────────────────────────────────────────────────────────┐
-│                    Backend Services                      │
-├─────────────────────────────────────────────────────────┤
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌────────┐ │
-│  │  OpenAI  │  │   IPFS   │  │  Oracle  │  │  Queue │ │
-│  │    API   │  │  Storage │  │   Cost   │  │ Process│ │
-│  └──────────┘  └──────────┘  └──────────┘  └────────┘ │
-└─────────────────────────────────────────────────────────┘
-```
+### 1.3 Key Actors
+1. **Users**: Claim entitlements, spin CRONs, own FIBERs
+2. **Platform**: Provides infrastructure, manages deficit
+3. **Advertisers**: Subsidize CRONs for branded content
+4. **Vendors**: Create premium CRONs for enhanced features
+5. **Pool Traders**: Buy WEAVE directly with TUSD
 
-### 2.2 Contract Dependencies
+## 2. Token Specifications
+
+### 2.1 CRON Token (ERC-721)
+Time-wrapped bundles with 24-hour expiry.
+
 ```solidity
-WeaveFactory (Main)
-├── CRONManager
-│   ├── WEAVEToken
-│   ├── DYEToken
-│   └── PricingOracle
-├── EntitlementManager
-│   └── TimeKeeper
-├── SponsorshipManager
-│   ├── AdvertiserRegistry
-│   └── VendorRegistry
-├── Treasury
-│   ├── hTUSDToken
-│   └── TUSDInterface
-└── SimpleCRONPool
-    └── PriceDiscovery
-```
-
-## 3. Token Specifications
-
-### 3.1 CRON Token (ERC-721 NFT)
-```solidity
-contract CRONToken is ERC721 {
-    struct CRONData {
-        uint256 providerId;       // Provider who can process this
-        uint256 dyeAmount;        // Computational units bundled
-        uint256 monetaryValue;    // TUSD or hTUSD amount
-        bool isSubsidy;           // true = TUSD subsidy, false = hTUSD premium
-        address sponsor;          // Who created/paid for this
-        uint256 expiryTime;       // 24-hour expiry timestamp
-        bytes metadata;           // Sponsor branding/style/requirements
-    }
-    
-    mapping(uint256 => CRONData) public cronData;
-    
-    // Events
-    event CRONCreated(uint256 indexed tokenId, address indexed recipient, uint256 expiry);
-    event CRONSpun(uint256 indexed tokenId, address indexed user);
-    event CRONExpired(uint256 indexed tokenId, uint256 dyeReturned);
-    
-    function mint(address to, CRONData memory data) external returns (uint256);
-    function spin(uint256 tokenId) external;
-    function processExpired(uint256 tokenId) external;
+struct CRONData {
+    uint16 providerId;        // Which AI provider (starts with OpenAI = 1)
+    uint240 dyeAmount;        // Computational units wrapped
+    uint256 monetaryValue;    // TUSD (subsidy) or hTUSD (premium) amount
+    bool isSubsidy;          // true = TUSD subsidy, false = hTUSD premium
+    address sponsor;         // Creator of this CRON
+    uint256 expiryTime;      // Timestamp + 24 hours
+    bytes metadata;          // Sponsor branding/requirements
 }
 ```
 
-### 3.2 WEAVE Token (ERC-1155 Semi-Fungible + Soulbound)
+**Three Types of CRONs**:
+1. **Platform/Entitlement**: WEAVE + DYE only (no fees, no monetary value)
+2. **Advertiser**: WEAVE + DYE + TUSD subsidy + distribution fee
+3. **Vendor**: WEAVE + DYE + hTUSD premium + distribution fee
+
+### 2.2 WEAVE Token (ERC-1155)
+Soulbound creation rights. ALWAYS non-transferable.
+
 ```solidity
-contract WEAVEToken is ERC1155, ERC5192 {
-    struct WEAVEMetadata {
-        uint256 providerId;       // Which provider issued this
-        uint256 createdAt;
-        uint256 cronId;           // Source CRON NFT
-        SponsorType sponsorType;
-        bytes sponsorData;
-        bool locked;              // Soulbound flag
-    }
-    
-    // Token ID = (providerId << 128) | uniqueId
-    mapping(uint256 => WEAVEMetadata) public weaveMetadata;
-    mapping(address => mapping(uint256 => bool)) public soulbound;
-    
-    // ERC5192 Soulbound implementation
-    function locked(uint256 tokenId) external view returns (bool) {
-        return weaveMetadata[tokenId].locked;
-    }
-    
-    function _beforeTokenTransfer(
-        address operator,
-        address from,
-        address to,
-        uint256[] memory ids,
-        uint256[] memory amounts,
-        bytes memory data
-    ) internal override {
-        for (uint i = 0; i < ids.length; i++) {
-            if (from != address(0) && weaveMetadata[ids[i]].locked) {
-                revert("WEAVE: Soulbound token");
-            }
-        }
-    }
-    
-    function mint(address to, uint256 providerId, uint256 cronId, bool makeSoulbound) external returns (uint256);
-    function burn(address from, uint256 tokenId, uint256 amount) external;
+// Token ID structure: (providerId << 240) | uniqueId
+// 16 bits for provider (65,536 possible providers)
+// 240 bits for unique IDs
+
+struct WEAVEData {
+    uint256 cronId;          // Source CRON that created this
+    address creator;         // Who spun the CRON
+    uint256 createdAt;       // Timestamp
+    bytes sponsorData;       // Carried from CRON metadata
 }
 ```
 
-### 3.3 FIBER Token (ERC-1155 Collection NFTs)
+### 2.3 FIBER Token (ERC-1155)
+Final comic NFT output. Transferable and tradeable.
+
 ```solidity
-contract FIBERToken is ERC1155, ERC1155Metadata {
-    struct FIBERMetadata {
-        uint256 providerId;       // Which provider created this
-        uint256 collectionId;     // Provider's collection
-        address creator;
-        uint256 createdAt;
-        string ipfsHash;          // Comic content
-        uint256 dyeUsed;          // Computational units consumed
-        uint256 costTUSD;         // Actual USD cost
-        SponsorType sponsorType;
-        address sponsor;
-        string journalText;       // Original input
-    }
-    
-    // Token ID = (providerId << 192) | (collectionId << 128) | uniqueId
-    mapping(uint256 => FIBERMetadata) public fiberMetadata;
-    
-    // Each FIBER is unique (amount always = 1)
-    function mint(
-        address to,
-        uint256 providerId,
-        uint256 collectionId,
-        string memory ipfsHash,
-        FIBERMetadata memory metadata
-    ) external returns (uint256);
-    
-    function uri(uint256 tokenId) public view override returns (string memory) {
-        return fiberMetadata[tokenId].ipfsHash;
-    }
+struct FIBERData {
+    uint16 providerId;       // Which AI created this
+    address creator;         // Original journal author
+    string ipfsHash;         // Comic content location
+    uint256 dyeUsed;         // Computational units consumed
+    uint256 costTUSD;        // Actual USD cost (6 decimals)
+    address sponsor;         // If sponsored
+    string journalText;      // Original input (may be encrypted)
 }
 ```
 
-### 3.4 DYE Token (ERC-20)
+### 2.4 DYE Token (ERC-20)
+Computational units. Minted when creating CRONs, burned when spinning.
+
 ```solidity
 contract DYEToken is ERC20 {
-    // Tracks computational units
-    // Minted when wrapped in CRON
-    // Burned when CRON is spun
-    
-    mapping(address => bool) public minters;
-    mapping(address => bool) public burners;
-    
-    function mint(address to, uint256 amount) external onlyMinter;
-    function burn(uint256 amount) external onlyBurner;
+    // Price = totalSupply(hTUSD) / totalSupply(DYE)
+    // Reflects actual computational cost basis
 }
 ```
 
-### 3.5 hTUSD Token (ERC-20)
+### 2.5 TUSD Token (ERC-20)
+Tapestry USD - Native L2 stablecoin, 1:1 with company bank account.
+
+```solidity
+contract TUSDToken is ERC20, Pausable {
+    uint256 public bankReserves;  // Tracked USD in bank
+    mapping(address => bool) public blacklisted;
+    
+    // Admin controlled minting based on bank deposits
+    function mint(address to, uint256 amount) external onlyAdmin {
+        require(amount <= bankReserves - totalSupply(), "Exceeds reserves");
+        _mint(to, amount);
+    }
+}
+```
+
+### 2.6 hTUSD Token (ERC-20)
+"Hole" TUSD - Tracks platform's operational deficit.
+
 ```solidity
 contract hTUSDToken is ERC20 {
-    // Tracks platform deficit (costs incurred)
-    // Minted when FIBER created (actual cost)
-    // Burned when revenue received
-    
-    uint256 public totalDeficit;    // Total minted
-    uint256 public totalCovered;    // Total burned
+    // Only mints, never auto-burns
+    // Represents total platform costs incurred
     
     function mint(uint256 amount) external onlyFactory {
         _mint(treasury, amount);
-        totalDeficit += amount;
-    }
-    
-    function burn(uint256 amount) external {
-        _burn(treasury, amount);
-        totalCovered += amount;
     }
 }
 ```
 
-## 4. Core Contracts
+## 3. Core Contracts
 
-### 4.1 WeaveFactory (Main Orchestrator)
+### 3.1 WeaveFactory
+Main orchestrator for the ecosystem.
+
 ```solidity
 contract WeaveFactory {
-    // State variables
+    // Token references
     CRONToken public cronToken;
     WEAVEToken public weaveToken;
     FIBERToken public fiberToken;
     DYEToken public dyeToken;
     hTUSDToken public htusdToken;
-    IERC20 public tusdToken;
+    TUSDToken public tusdToken;
     
-    // Provider registry for variable DYE consumption
-    mapping(uint256 => ProviderConfig) public providers;
-    
-    struct ProviderConfig {
-        string name;
-        address operator;
-        uint256 baseDyeConsumption;  // e.g., 2500 for standard
-        uint256 premiumMultiplier;   // e.g., 2x for premium
-        bool active;
-    }
+    // Configuration
     uint256 public constant CRON_DURATION = 24 hours;
+    uint256 public constant INITIAL_DYE_PRICE = 0.05e6; // $0.05 in TUSD decimals
     
-    // Main functions
-    function createEntitlementCRON(address user) external;
-    function createAdvertiserCRON(address recipient, uint256 subsidy, bytes calldata metadata) external;
-    function createVendorCRON(address recipient, uint256 premium, bytes calldata metadata) external;
+    // Core functions
+    function createEntitlementCRON(address recipient) external;
+    function createAdvertiserCRON(
+        address recipient, 
+        uint256 tusdSubsidy,
+        uint256 distributionFee,
+        bytes calldata metadata
+    ) external;
+    function createVendorCRON(
+        address recipient,
+        uint256 htusdPremium,
+        uint256 distributionFee,
+        bytes calldata metadata
+    ) external;
     function spinCRON(uint256 cronId) external;
-    function processExpiredCRON(uint256 cronId) external;
-    function completeWEAVE(uint256 weaveId, bool success, uint256 actualCostTUSD, string memory ipfsHash) external;
+    function completeWEAVE(
+        uint256 weaveId,
+        bool success,
+        uint256 actualCostTUSD,
+        string memory ipfsHash
+    ) external onlyBackend;
 }
 ```
 
-### 4.2 EntitlementManager
+### 3.2 EntitlementManager
+Manages 6-hour entitlement distributions.
+
 ```solidity
 contract EntitlementManager {
     uint256 public constant ENTITLEMENT_INTERVAL = 6 hours;
-    uint256 public constant MAX_DAILY_ENTITLEMENTS = 4;
     
-    struct UserEntitlement {
-        uint256 lastClaim;
-        uint256 claimsToday;
-        uint256 dayStarted;
-    }
-    
-    mapping(address => UserEntitlement) public entitlements;
+    mapping(address => uint256) public lastClaim;
     
     function claimEntitlement() external {
-        UserEntitlement storage ent = entitlements[msg.sender];
+        // Relative timing - smooth, no cliffs
+        require(block.timestamp >= lastClaim[msg.sender] + ENTITLEMENT_INTERVAL, "Too soon");
         
-        // Reset daily counter if new day
-        if (block.timestamp >= ent.dayStarted + 1 days) {
-            ent.claimsToday = 0;
-            ent.dayStarted = block.timestamp;
-        }
-        
-        require(ent.claimsToday < MAX_DAILY_ENTITLEMENTS, "Daily limit");
-        require(block.timestamp >= ent.lastClaim + ENTITLEMENT_INTERVAL, "Too soon");
-        
-        // Create CRON for user
-        weaveFactory.createEntitlementCRON(msg.sender);
-        
-        ent.lastClaim = block.timestamp;
-        ent.claimsToday++;
+        lastClaim[msg.sender] = block.timestamp;
+        factory.createEntitlementCRON(msg.sender);
     }
 }
 ```
 
-### 4.3 DynamicFeeManager
+### 3.3 ProviderRegistry
+Minimal registry for AI provider management.
+
 ```solidity
-contract DynamicFeeManager {
-    WeavePool public weavePool;
+contract ProviderRegistry {
+    struct Provider {
+        string name;
+        address operator;
+        uint256 baseDyeAmount;    // Standard operation cost
+        bool active;
+    }
     
-    function calculateDistributionFee(WrapType wType) external view returns (uint256) {
-        uint256 poolSize = weavePool.available();
-        uint256 utilization = weavePool.getUtilizationRate();
-        
-        // Base fees
-        uint256 baseFee;
-        if (wType == WrapType.GIFT) baseFee = 0.1 * 1e6;
-        else if (wType == WrapType.ADVERTISER) baseFee = 0.5 * 1e6;
-        else if (wType == WrapType.VENDOR) baseFee = 0.3 * 1e6;
-        
-        // Scarcity multiplier
-        uint256 multiplier;
-        if (poolSize == 0) {
-            // No inventory - value-based pricing
-            multiplier = 200; // 2x
-        } else if (utilization > 95) {
-            // Critical scarcity
-            multiplier = 500; // 5x
-        } else if (utilization > 90) {
-            // High utilization
-            multiplier = 200; // 2x
-        } else if (utilization > 80) {
-            // Normal
-            multiplier = 100; // 1x
-        } else {
-            // Abundant
-            multiplier = 50; // 0.5x
-        }
-        
-        return (baseFee * multiplier) / 100;
+    mapping(uint16 => Provider) public providers;
+    uint16 public providerCount;
+    
+    constructor() {
+        // Bootstrap with OpenAI
+        providers[1] = Provider({
+            name: "OpenAI",
+            operator: address(0), // Will be set to backend
+            baseDyeAmount: 1000,  // Base DYE units
+            active: true
+        });
+        providerCount = 1;
     }
 }
 ```
 
-### 4.4 SimpleCRONPool (AMM)
+### 3.4 SimpleCRONPool
+AMM for WEAVE <-> TUSD trading.
+
 ```solidity
 contract SimpleCRONPool {
     uint256 public weaveReserve;
-    uint256 public usdcReserve;
+    uint256 public tusdReserve;
+    bool public poolOpen;
     
-    // No fees, pure ratio
+    // Pool starts closed, opens after sufficient inventory
+    modifier whenOpen() {
+        require(poolOpen, "Pool not yet open");
+        _;
+    }
+    
+    function openPool() external onlyAdmin {
+        require(weaveReserve >= MIN_WEAVE_LIQUIDITY, "Insufficient WEAVE");
+        poolOpen = true;
+    }
+    
     function getPrice() public view returns (uint256) {
-        if (weaveReserve == 0) return 1e6; // $1 default
-        return (usdcReserve * 1e18) / weaveReserve;
+        if (weaveReserve == 0) return getDYEPrice();
+        return (tusdReserve * 1e18) / weaveReserve;
     }
     
-    function swapTUSDForWEAVE(uint256 tusdIn) external returns (uint256 weaveOut) {
-        uint256 k = weaveReserve * usdcReserve;
-        uint256 newUsdcReserve = usdcReserve + usdcIn;
-        uint256 newWeaveReserve = k / newUsdcReserve;
-        weaveOut = weaveReserve - newWeaveReserve;
+    function getDYEPrice() public view returns (uint256) {
+        uint256 htusdSupply = htusdToken.totalSupply();
+        uint256 dyeSupply = dyeToken.totalSupply();
         
-        // Update reserves
-        usdcReserve = newUsdcReserve;
-        weaveReserve = newWeaveReserve;
+        if (dyeSupply == 0) return INITIAL_DYE_PRICE;
+        return (htusdSupply * 1e18) / dyeSupply;
+    }
+    
+    function maintainPriceFloor() external {
+        uint256 dyePrice = getDYEPrice();
+        uint256 poolPrice = getPrice();
         
-        // Transfer tokens
-        usdcToken.transferFrom(msg.sender, address(this), usdcIn);
-        weaveToken.transfer(msg.sender, weaveOut);
-    }
-}
-```
-
-## 5. Economic Flows
-
-### 5.1 Entitlement Flow
-```
-1. User claims entitlement (every 6 hours)
-2. System creates CRON(WEAVE + DYE)
-3. User spins CRON within 24 hours
-4. Creates soulbound WEAVE, burns DYE
-5. Backend processes with AI
-6. WEAVE burns → FIBER minted + hTUSD minted
-```
-
-### 5.2 Advertiser Flow
-```
-1. Advertiser creates wrapped CRONs
-   - Pays: Distribution fee + WEAVE price + DYE cost + Subsidy
-2. User claims advertiser CRON
-3. User spins (free or profitable)
-4. Subsidy TUSD burns equivalent hTUSD (deficit reduction!)
-5. Creates branded FIBER
-```
-
-### 5.3 Vendor Flow  
-```
-1. Vendor creates premium CRONs
-   - Pays: Distribution fee + WEAVE price + DYE cost
-2. User buys and spins vendor CRON
-   - Pays: Premium amount
-3. Platform keeps DYE cost from premium
-4. Vendor receives (Premium - DYE cost)
-5. Creates premium FIBER
-```
-
-### 5.4 Expiry Flow
-```
-1. CRON not spun within 24 hours
-2. WEAVE returns to pool (becomes inventory)
-3. DYE returns to pool
-4. Any wrapped TUSD/hTUSD is lost
-5. Distribution fees never refunded
-```
-
-## 6. Backend Integration
-
-### 6.1 Event Listeners
-```javascript
-// Listen for WEAVE creation
-contract.on('WEAVECreated', async (weaveId, owner) => {
-  const journalData = await getJournalData(owner);
-  const job = await queue.add('processWeave', {
-    weaveId,
-    owner,
-    journalData
-  });
-});
-
-// Process WEAVE
-async function processWeave(job) {
-  const { weaveId, journalData } = job.data;
-  
-  try {
-    // Generate comic with AI
-    const result = await generateComic(journalData);
-    
-    // Upload to IPFS
-    const ipfsHash = await ipfs.add(result.image);
-    
-    // Report to contract
-    await contract.completeWEAVE(
-      weaveId,
-      true,                    // success
-      result.costTUSD * 1e6,   // actual cost in TUSD decimals
-      ipfsHash
-    );
-  } catch (error) {
-    // Report failure
-    await contract.completeWEAVE(
-      weaveId,
-      false,                   // failed
-      error.costTUSD * 1e6,    // cost still incurred
-      ''
-    );
-  }
-}
-```
-
-### 6.2 Cost Tracking
-```javascript
-// Track costs accurately
-async function generateComic(journalData) {
-  const startTime = Date.now();
-  let totalCost = 0;
-  let attempts = 0;
-  
-  while (attempts < 3) {
-    try {
-      const response = await openai.createCompletion({
-        model: 'gpt-4',
-        prompt: formatPrompt(journalData),
-        max_tokens: 1000
-      });
-      
-      // Calculate cost
-      const promptTokens = response.usage.prompt_tokens;
-      const completionTokens = response.usage.completion_tokens;
-      const textCost = calculateCost(promptTokens, completionTokens);
-      
-      // Generate image
-      const image = await generateImage(response.choices[0].text);
-      const imageCost = 0.04; // DALL-E cost
-      
-      totalCost += textCost + imageCost;
-      
-      return {
-        success: true,
-        image,
-        costTUSD: totalCost,
-        attempts: attempts + 1
-      };
-    } catch (error) {
-      totalCost += 0.01; // Failed attempt cost
-      attempts++;
-    }
-  }
-  
-  throw { costTUSD: totalCost, message: 'Max attempts reached' };
-}
-```
-
-## 7. Security Considerations
-
-### 7.1 Access Control
-```solidity
-contract WeaveFactory {
-    mapping(address => bool) public backends;
-    mapping(address => bool) public oracles;
-    
-    modifier onlyBackend() {
-        require(backends[msg.sender], "Not backend");
-        _;
-    }
-    
-    modifier onlyOracle() {
-        require(oracles[msg.sender], "Not oracle");
-        _;
-    }
-}
-```
-
-### 7.2 Reentrancy Protection
-```solidity
-contract WeaveFactory is ReentrancyGuard {
-    function spinCRON(uint256 cronId) external nonReentrant {
-        // Process CRON spinning
-    }
-    
-    function claimAdvertiserCRON(uint256 cronId) external nonReentrant {
-        // Process claiming
-    }
-}
-```
-
-### 7.3 Integer Overflow Protection
-- Use Solidity 0.8.x with built-in overflow protection
-- Use OpenZeppelin SafeMath for older versions
-
-### 7.4 Oracle Security
-```solidity
-contract PriceOracle {
-    uint256 public lastUpdate;
-    uint256 public maxAge = 1 hours;
-    
-    function updatePrice(uint256 newPrice) external onlyOracle {
-        require(block.timestamp >= lastUpdate + 1 minutes, "Too frequent");
-        require(newPrice > 0 && newPrice < 1000 * 1e6, "Invalid price");
-        
-        lastUpdate = block.timestamp;
-        currentPrice = newPrice;
-    }
-    
-    function getPrice() external view returns (uint256) {
-        require(block.timestamp <= lastUpdate + maxAge, "Price stale");
-        return currentPrice;
-    }
-}
-```
-
-## 8. Gas Optimization
-
-### 8.1 Storage Optimization
-```solidity
-// Pack struct variables for ERC-721 metadata
-struct CRONData {
-    uint128 providerId;   // Which provider (Slot 1)
-    uint128 dyeAmount;    // Computational units (Slot 1)
-    uint64 expiryTime;    // Timestamp (Slot 2)
-    uint64 monetaryValue; // TUSD amount (Slot 2)
-    uint32 complexity;    // Complexity multiplier (Slot 2)
-    address sponsor;      // 20 bytes (Slot 3)
-    bool isSubsidy;       // 1 byte (Slot 3)
-    // Total: 3 storage slots, optimized for NFT storage
-}
-```
-
-### 8.2 Batch Operations
-```solidity
-function processExpiredCRONBatch(uint256[] calldata cronIds) external {
-    for (uint i = 0; i < cronIds.length; i++) {
-        if (isExpired(cronIds[i])) {
-            _processExpiredCRON(cronIds[i]);
+        if (poolPrice < dyePrice) {
+            // Price below floor - intervention needed
+            uint256 deficit = (weaveReserve * dyePrice) - tusdReserve;
+            
+            // Mint hTUSD to track intervention cost
+            htusdToken.mint(deficit);
+            
+            // Burn equivalent DYE to reduce supply
+            uint256 dyeToBurn = (deficit * 1e18) / dyePrice;
+            dyeToken.burn(dyeToBurn);
+            
+            // Add TUSD to pool to restore floor
+            tusdReserve += deficit;
         }
     }
 }
 ```
 
-### 8.3 Event Optimization
+### 3.5 Treasury
+Manages platform funds with manual admin control.
+
 ```solidity
-// Use indexed parameters for frequently queried fields
-event CRONCreated(
-    uint256 indexed cronId,
-    address indexed recipient,
-    address indexed sponsor,
-    uint256 expiry
-);
+contract Treasury {
+    TUSDToken public tusdToken;
+    hTUSDToken public htusdToken;
+    
+    // Revenue sources mint TUSD here
+    function recordRevenue(uint256 amount) external onlyFactory {
+        tusdToken.mint(address(this), amount);
+    }
+    
+    // Admin manually reconciles monthly
+    function reconcileBooks(uint256 burnAmount) external onlyAdmin {
+        // CFO/Admin decides how much hTUSD to burn based on books
+        require(tusdToken.balanceOf(address(this)) >= burnAmount, "Insufficient TUSD");
+        
+        tusdToken.burn(burnAmount);
+        htusdToken.burn(burnAmount);
+        
+        emit MonthlyReconciliation(burnAmount, block.timestamp);
+    }
+}
 ```
 
-## 9. Testing Strategy
+## 4. Economic Flows
+
+### 4.1 Entitlement Flow
+```
+1. User calls claimEntitlement() after 6 hours
+2. Platform creates CRON with WEAVE + DYE (no fees)
+3. Platform mints DYE and corresponding hTUSD (deficit tracking)
+4. User spins CRON within 24 hours → creates soulbound WEAVE
+5. Backend processes WEAVE → creates FIBER
+6. Platform mints hTUSD for actual cost incurred
+7. If CRON expires: WEAVE returns to pool, DYE returns to circulation
+```
+
+### 4.2 Advertiser Flow
+```
+1. Advertiser pays: distribution fee + WEAVE cost + DYE cost + TUSD subsidy
+2. Platform creates wrapped CRON for target user
+3. Platform records distribution fee as TUSD revenue
+4. User spins CRON (receives TUSD subsidy)
+5. Creates branded FIBER with sponsor metadata
+```
+
+### 4.3 Vendor Flow
+```
+1. Vendor pays: distribution fee + WEAVE cost + DYE cost
+2. Vendor wraps hTUSD premium amount in CRON
+3. Platform records distribution fee as TUSD revenue
+4. User pays hTUSD premium to vendor when spinning
+5. Creates premium FIBER with enhanced features
+```
+
+### 4.4 Pool Trading Flow
+```
+1. Pool starts closed, accumulates WEAVE from expired CRONs
+2. Once sufficient inventory, admin opens pool
+3. Users can swap TUSD for WEAVE at market rate
+4. Price floor maintained at DYE price (computational cost)
+5. If price drops below floor: mint hTUSD + burn DYE
+```
+
+### 4.5 Expiry Compaction
+```
+1. CRONs expire after 24 hours if not spun
+2. No separate expiry transactions needed
+3. Any WEAVE→FIBER operation triggers compaction
+4. Expired CRONs return WEAVE to pool
+5. Wrapped TUSD/hTUSD in expired CRONs is lost
+```
+
+## 5. Revenue Model
+
+### 5.1 Revenue Sources
+All revenue mints TUSD (never burns hTUSD automatically):
+
+1. **Distribution Fees**: Charged to advertisers/vendors creating CRONs
+2. **WEAVE Sales**: From pool trading or direct sales
+3. **DYE Sales**: For users wanting more computational units
+4. **Premium Features**: Future revenue streams
+
+### 5.2 Cost Tracking
+All costs mint hTUSD (never burn automatically):
+
+1. **AI Processing**: Actual OpenAI API costs
+2. **Infrastructure**: IPFS, backend operations
+3. **Pool Interventions**: Maintaining price floor
+4. **Overruns**: When actual cost > expected DYE value
+
+### 5.3 Monthly Reconciliation
+- Admin/CFO reviews TUSD balance vs hTUSD deficit
+- Manually burns appropriate amounts
+- Maintains clean books for accounting
+- DYE price remains pure cost metric
+
+## 6. Security Considerations
+
+### 6.1 Access Control
+```solidity
+bytes32 public constant FACTORY_ROLE = keccak256("FACTORY");
+bytes32 public constant BACKEND_ROLE = keccak256("BACKEND");
+bytes32 public constant ADMIN_ROLE = keccak256("ADMIN");
+bytes32 public constant TREASURY_ROLE = keccak256("TREASURY");
+```
+
+### 6.2 Reentrancy Protection
+- All state changes before external calls
+- OpenZeppelin ReentrancyGuard on critical functions
+
+### 6.3 Integer Overflow
+- Solidity 0.8.20+ with built-in overflow protection
+- Careful with bit shifting in token IDs
+
+### 6.4 Soulbound Enforcement
+- WEAVE tokens check transfers in _update hook
+- Revert all transfers except minting
+
+## 7. Gas Optimization
+
+### 7.1 Storage Packing
+```solidity
+struct OptimizedCRON {
+    uint16 providerId;     // Slot 1: 2 bytes
+    uint80 dyeAmount;      // Slot 1: 10 bytes  
+    uint32 expiryTime;     // Slot 1: 4 bytes (timestamp)
+    uint128 monetaryValue; // Slot 2: 16 bytes
+    address sponsor;       // Slot 3: 20 bytes
+    bool isSubsidy;        // Slot 3: 1 byte
+    // Total: 3 slots
+}
+```
+
+### 7.2 Batch Operations
+- Process multiple expired CRONs in one transaction
+- Batch FIBER minting for backend
+
+### 7.3 Event-Based Storage
+- Store metadata in events when possible
+- Keep only essential data in contract storage
+
+## 8. Launch Sequence
+
+### Phase 1: Soft Launch (Weeks 1-2)
+1. Deploy all contracts with pool closed
+2. Enable entitlements only
+3. Gather cost data from operations
+4. Let WEAVE inventory build from expiries
+
+### Phase 2: Pool Opening (Week 3)
+1. Analyze DYE price stability
+2. Ensure sufficient WEAVE inventory
+3. Open SimpleCRONPool for trading
+4. Monitor price floor mechanism
+
+### Phase 3: Sponsor Integration (Week 4)
+1. Enable advertiser CRON creation
+2. Enable vendor CRON creation
+3. Test distribution fee collection
+4. Verify subsidy/premium flows
+
+### Phase 4: Full Production (Week 5+)
+1. All features operational
+2. Monthly reconciliation begins
+3. Continuous monitoring
+4. Feature expansion
+
+## 9. Testing Requirements
 
 ### 9.1 Unit Tests
-```javascript
-describe("CRON Token", () => {
-  it("should create CRON with correct expiry", async () => {
-    const tx = await cronToken.createCRON(user.address);
-    const cron = await cronToken.getCRON(1);
-    
-    expect(cron.expiryTime).to.equal(
-      (await ethers.provider.getBlock()).timestamp + 86400
-    );
-  });
-  
-  it("should return WEAVE to pool on expiry", async () => {
-    await time.increase(86401); // 24 hours + 1 second
-    await cronToken.processExpiredCRON(1);
-    
-    expect(await weavePool.available()).to.equal(1);
-  });
-});
-```
+- Token minting/burning mechanics
+- CRON expiry after 24 hours
+- Soulbound WEAVE enforcement
+- DYE price calculation
+- Pool price floor maintenance
 
 ### 9.2 Integration Tests
-```javascript
-describe("Full Flow", () => {
-  it("should complete entitlement to FIBER flow", async () => {
-    // Claim entitlement
-    await entitlementManager.claimEntitlement();
-    
-    // Spin CRON
-    await weaveFactory.spinCRON(1);
-    
-    // Simulate backend processing
-    await weaveFactory.connect(backend).completeWEAVE(
-      1,
-      true,
-      50000, // $0.05 cost
-      "ipfs://Qm..."
-    );
-    
-    // Verify FIBER created
-    expect(await fiberToken.ownerOf(1)).to.equal(user.address);
-    
-    // Verify hTUSD minted
-    expect(await htusdToken.totalSupply()).to.equal(50000);
-  });
-});
-```
+- Full entitlement → FIBER flow
+- Advertiser subsidy flow
+- Vendor premium flow
+- Pool trading with floor
+- Expiry compaction
 
 ### 9.3 Economic Tests
-```javascript
-describe("Economic Model", () => {
-  it("should reduce deficit with advertiser subsidy", async () => {
-    const initialDeficit = await husdcToken.totalSupply();
-    
-    // Create advertiser CRON with $1 subsidy
-    await advertiserManager.createCRON(user.address, 1e6);
-    
-    // User spins
-    await weaveFactory.connect(user).spinCRON(1);
-    
-    // Complete FIBER
-    await weaveFactory.connect(backend).completeWEAVE(1, true, 50000, "ipfs://");
-    
-    // Deficit should be reduced by (subsidy - cost)
-    const newDeficit = await husdcToken.totalSupply();
-    expect(initialDeficit - newDeficit).to.equal(950000); // $0.95 reduction
-  });
-});
+- DYE price tracking accuracy
+- hTUSD/TUSD balance tracking
+- Price floor interventions
+- Revenue recording
+- Cost overrun handling
+
+### 9.4 Security Tests
+- Reentrancy attempts
+- Access control bypass attempts
+- Integer overflow edge cases
+- Soulbound transfer attempts
+
+## 10. Deployment Configuration
+
+### 10.1 Initial Parameters
+```solidity
+CRON_DURATION = 24 hours
+ENTITLEMENT_INTERVAL = 6 hours
+INITIAL_DYE_PRICE = 0.05 * 1e6  // $0.05 in TUSD decimals
+MIN_WEAVE_LIQUIDITY = 100       // Minimum before pool opens
+PROVIDER_ID_OPENAI = 1          // OpenAI as first provider
 ```
 
-## 10. Deployment Strategy
-
-### 10.1 Deployment Order
-1. Deploy token contracts (DYE, TUSD, hTUSD)
-2. Deploy WEAVEToken (soulbound)
-3. Deploy FIBERToken (NFT)
-4. Deploy SimpleCRONPool
-5. Deploy EntitlementManager
-6. Deploy DynamicFeeManager
-7. Deploy WeaveFactory (main)
-8. Configure permissions and roles
-9. Initialize pools with liquidity
-
-### 10.2 Configuration Script
-```javascript
-async function deploy() {
-  // Deploy tokens
-  const DYE = await ethers.deployContract("DYEToken");
-  const TUSD = await ethers.deployContract("TUSDToken");
-  const hTUSD = await ethers.deployContract("hTUSDToken");
-  const WEAVE = await ethers.deployContract("WEAVEToken");
-  const FIBER = await ethers.deployContract("FIBERToken");
-  
-  // Deploy core contracts
-  const Factory = await ethers.deployContract("WeaveFactory", [
-    DYE.address,
-    TUSD.address,
-    hTUSD.address,
-    WEAVE.address,
-    FIBER.address,
-    // No external USDC needed - using native TUSD
-  ]);
-  
-  // Configure permissions
-  await DYE.grantRole(MINTER_ROLE, Factory.address);
-  await TUSD.grantRole(MINTER_ROLE, Factory.address);
-  await hTUSD.grantRole(MINTER_ROLE, Factory.address);
-  await WEAVE.grantRole(MINTER_ROLE, Factory.address);
-  await FIBER.grantRole(MINTER_ROLE, Factory.address);
-  
-  // Initialize pools
-  await Pool.initialize(1000, 1000e6); // 1000 WEAVE, $1000 TUSD
-  
-  console.log("Deployment complete!");
-}
+### 10.2 Role Assignments
+```solidity
+DEFAULT_ADMIN_ROLE -> Multisig
+FACTORY_ROLE -> WeaveFactory
+BACKEND_ROLE -> Backend server wallet
+TREASURY_ROLE -> Treasury contract
+MINTER_ROLE -> Authorized contracts only
 ```
 
-## 11. Monitoring and Analytics
+### 10.3 Contract Addresses (To be filled on deployment)
+```
+CRONToken: 0x...
+WEAVEToken: 0x...
+FIBERToken: 0x...
+DYEToken: 0x...
+TUSDToken: 0x...
+hTUSDToken: 0x...
+WeaveFactory: 0x...
+EntitlementManager: 0x...
+ProviderRegistry: 0x...
+SimpleCRONPool: 0x...
+Treasury: 0x...
+```
+
+## 11. Monitoring & Analytics
 
 ### 11.1 Key Metrics
+- Total users with FIBERs
+- Daily CRON creation/expiry rate
+- DYE price trend
+- hTUSD deficit vs TUSD revenue
+- Pool WEAVE inventory
+- Price floor intervention frequency
+
+### 11.2 Events for Indexing
 ```solidity
-contract Analytics {
-    struct Metrics {
-        uint256 totalUsers;
-        uint256 totalFIBERsCreated;
-        uint256 utilizationRate;
-        uint256 expiryRate;
-        uint256 totalDeficit;
-        uint256 totalRevenue;
-        uint256 averageDyePerFiber;
-        uint256 averageCostPerFiber;
-    }
-    
-    function getMetrics() external view returns (Metrics memory);
-    function getDailyStats(uint256 day) external view returns (DailyStats memory);
-    function getUserStats(address user) external view returns (UserStats memory);
-}
+event CRONCreated(uint256 indexed tokenId, address indexed recipient, uint256 expiry);
+event CRONSpun(uint256 indexed cronId, uint256 indexed weaveId, address indexed user);
+event CRONExpired(uint256 indexed cronId, uint256 weaveReturned);
+event FIBERCreated(uint256 indexed fiberId, address indexed creator, uint256 cost);
+event PriceFloorMaintained(uint256 htusdMinted, uint256 dyeBurned);
+event MonthlyReconciliation(uint256 amount, uint256 timestamp);
 ```
 
-### 11.2 Event Indexing
-```graphql
-type CRON @entity {
-  id: ID!
-  recipient: User!
-  sponsor: Sponsor
-  createdAt: BigInt!
-  expiryTime: BigInt!
-  status: CRONStatus!
-  weaveId: BigInt!
-  dyeAmount: BigInt!
-}
+## 12. Future Considerations
 
-type FIBER @entity {
-  id: ID!
-  creator: User!
-  createdAt: BigInt!
-  ipfsHash: String!
-  dyeUsed: BigInt!
-  costTUSD: BigInt!
-  sponsor: Sponsor
-}
+### 12.1 Additional Providers
+- Provider ID 2: Anthropic Claude
+- Provider ID 3: Stability AI
+- Provider ID 4: Midjourney
+- Different DYE costs per provider
 
-type User @entity {
-  id: ID!
-  totalFIBERs: BigInt!
-  totalCRONsClaimed: BigInt!
-  totalCRONsExpired: BigInt!
-}
-```
+### 12.2 Enhanced Features
+- FIBER collections and series
+- Collaborative FIBERs (multiple WEAVEs)
+- FIBER evolution/upgrades
+- Social features and sharing
 
-## 12. Upgrade Strategy
+### 12.3 Cross-chain Expansion
+- Bridge to Ethereum mainnet
+- Other L2 deployments
+- Cross-chain FIBER transfers
 
-### 12.1 Upgradeable Contracts
+## Appendix A: Contract Interfaces
+
+### ICRON
 ```solidity
-contract WeaveFactoryV2 is WeaveFactoryV1, UUPSUpgradeable {
-    function _authorizeUpgrade(address newImplementation) 
-        internal 
-        override 
-        onlyRole(UPGRADER_ROLE) 
-    {}
-    
-    function version() public pure returns (string memory) {
-        return "2.0.0";
-    }
+interface ICRON {
+    function mint(address to, CRONData memory data) external returns (uint256);
+    function spin(uint256 tokenId) external;
+    function isExpired(uint256 tokenId) external view returns (bool);
+    function processExpired(uint256[] calldata tokenIds) external;
 }
 ```
 
-### 12.2 Migration Plan
-1. Deploy new implementation
-2. Pause old factory
-3. Migrate state if needed
-4. Update proxy to new implementation
-5. Resume operations
-6. Monitor for issues
+### IWEAVE
+```solidity
+interface IWEAVE {
+    function mint(address to, uint256 cronId, bytes memory metadata) external returns (uint256);
+    function burn(uint256 tokenId) external;
+    function isLocked(uint256 tokenId) external view returns (bool);
+}
+```
 
-## 13. Risk Analysis
+### IFIBER
+```solidity
+interface IFIBER {
+    function mint(
+        address to,
+        uint256 weaveId,
+        string memory ipfsHash,
+        uint256 actualCost
+    ) external returns (uint256);
+}
+```
 
-### 13.1 Technical Risks
-- **Smart Contract Bugs**: Mitigated by audits and testing
-- **Oracle Failures**: Fallback to manual updates
-- **Backend Failures**: Queue system with retries
-- **IPFS Availability**: Backup storage options
+## Appendix B: Error Codes
 
-### 13.2 Economic Risks
-- **100% Utilization**: Platform pivots to value marketplace
-- **0% Utilization**: Minimum distribution fees ensure revenue
-- **Price Manipulation**: AMM pool with protective mechanisms
-- **Deficit Spiral**: Advertiser subsidies reduce deficit
-
-### 13.3 Operational Risks
-- **Regulatory**: Utility token model, not security
-- **Scalability**: L2 solution for gas efficiency
-- **User Adoption**: Free entitlements drive usage
-- **Competition**: First mover advantage, network effects
-
-## 14. Conclusion
-
-The Weave ecosystem technical design provides a robust, scalable, and economically sustainable platform for transforming journal entries into NFT comics. The key innovations include:
-
-1. **Dual-token cost tracking** (DYE for operations, hTUSD for costs)
-2. **Expired inventory monetization** (waste becomes product)
-3. **Deficit reduction via subsidies** (advertisers pay platform costs)
-4. **Resilient at any utilization** (works from 0% to 100%)
-
-The system is designed to be self-balancing, requiring minimal manual intervention while providing transparent on-chain economics for all participants.
+```solidity
+error InsufficientBalance(uint256 requested, uint256 available);
+error CRONExpired(uint256 cronId);
+error CRONNotExpired(uint256 cronId);
+error WEAVELocked(uint256 weaveId);
+error EntitlementTooSoon(uint256 nextClaim);
+error PoolClosed();
+error PriceBelowFloor(uint256 current, uint256 floor);
+error Unauthorized(address caller);
+```
 
 ---
 
-*This technical design document is subject to updates based on implementation findings and community feedback.*
+*This Technical Design Document represents the complete and final protocol specification for implementation.*
