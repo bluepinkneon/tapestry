@@ -5,12 +5,12 @@ import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import { AccessControl } from "@openzeppelin/contracts/access/AccessControl.sol";
 
 /**
- * @title hUSDCToken (USD Hole)
+ * @title hTUSDToken (Tapestry USD Hole)
  * @dev ERC20 token tracking the platform's deficit/costs
  * Minted when FIBERs are created (representing actual USD costs)
  * Burned when revenue is received (reducing deficit)
  */
-contract hUSDCToken is ERC20, AccessControl {
+contract hTUSDToken is ERC20, AccessControl {
     // Constants
     bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
     bytes32 public constant BURNER_ROLE = keccak256("BURNER_ROLE");
@@ -34,17 +34,17 @@ contract hUSDCToken is ERC20, AccessControl {
     error InsufficientDeficit(uint256 requested, uint256 available);
 
     /**
-     * @dev Constructor initializes the hUSDC token
+     * @dev Constructor initializes the hTUSD token
      */
-    constructor() ERC20("Weave USD Hole", "hUSDC") {
+    constructor() ERC20("Tapestry USD Hole", "hTUSD") {
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
         _grantRole(MINTER_ROLE, msg.sender);
         _grantRole(BURNER_ROLE, msg.sender);
     }
 
     /**
-     * @dev Mints hUSDC when costs are incurred
-     * @param amount Amount of USD cost (in 6 decimals like USDC)
+     * @dev Mints hTUSD when costs are incurred
+     * @param amount Amount of USD cost (in 6 decimals like TUSD)
      * @param category Cost category for tracking
      */
     function mintDeficit(uint256 amount, string calldata category) external onlyRole(MINTER_ROLE) {
@@ -61,7 +61,7 @@ contract hUSDCToken is ERC20, AccessControl {
     }
 
     /**
-     * @dev Burns hUSDC when revenue covers costs
+     * @dev Burns hTUSD when revenue covers costs
      * @param amount Amount of deficit to cover
      * @param source Revenue source (e.g., "distribution_fee", "advertiser_subsidy")
      */
@@ -107,7 +107,7 @@ contract hUSDCToken is ERC20, AccessControl {
     }
 
     /**
-     * @dev Override decimals to match USDC (6 decimals)
+     * @dev Override decimals to match TUSD (6 decimals)
      */
     function decimals() public pure override returns (uint8) {
         return 6;

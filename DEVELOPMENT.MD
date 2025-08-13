@@ -46,7 +46,7 @@ We use a combination of patterns optimized for different needs:
 ```
 
 #### Immutable Contracts
-- **Tokens**: DYE, hUSDC (Simple ERC-20s don't need upgrades)
+- **Tokens**: DYE, TUSD, hTUSD (Simple ERC-20s don't need upgrades)
 - **Core NFTs**: CRON (ERC-721), WEAVE (ERC-1155), FIBER (ERC-1155)
 - **Pool**: SimpleCRONPool (AMM logic is well-tested)
 
@@ -117,7 +117,8 @@ contract WeaveRegistry {
     address public immutable WEAVE;   // ERC-1155 Semi-fungible
     address public immutable FIBER;   // ERC-1155 Collections
     address public immutable DYE;     // ERC-20 Fungible
-    address public immutable hUSDC;   // ERC-20 Deficit tracker
+    address public immutable TUSD;    // ERC-20 Native stablecoin
+    address public immutable hTUSD;   // ERC-20 Deficit tracker
     
     // Upgradeable components
     address public factory;
@@ -247,7 +248,7 @@ struct CronData {
     uint128 providerId;   // Slot 1 - Which provider can process
     uint128 dyeAmount;    // Slot 1 - Computational units
     uint64 expiryTime;    // Slot 2 - 24-hour expiry
-    uint64 monetaryValue; // Slot 2 - USDC/hUSDC amount
+    uint64 monetaryValue; // Slot 2 - TUSD/hTUSD amount
     uint32 complexity;    // Slot 2 - Complexity multiplier
     address sponsor;      // Slot 3 - Who paid for this
     bool isSubsidy;       // Slot 3 - Subsidy vs premium
@@ -427,7 +428,8 @@ tapestry/
 │   │   ├── WEAVEToken.sol      // ERC-1155 Semi-fungible
 │   │   ├── FIBERToken.sol      // ERC-1155 Collections
 │   │   ├── DYEToken.sol        // ERC-20 Computational units
-│   │   └── hUSDCToken.sol      // ERC-20 Deficit tracker
+│   │   ├── TUSDToken.sol       // ERC-20 Native stablecoin
+│   │   └── hTUSDToken.sol      // ERC-20 Deficit tracker
 │   ├── core/
 │   │   ├── WeaveRegistry.sol
 │   │   ├── WeaveFactory.sol
@@ -537,10 +539,10 @@ contract InvariantTest is Test {
     
     function invariant_ConservationOfValue() public {
         uint256 totalDYE = ecosystem.dyeToken().totalSupply();
-        uint256 totalHUSDC = ecosystem.husdcToken().totalSupply();
+        uint256 totalHTUSD = ecosystem.htusdToken().totalSupply();
         
-        // DYE minted should roughly equal hUSDC minted
-        assertApproxEqRel(totalDYE * ecosystem.dyeToUSDRate(), totalHUSDC, 0.1e18);
+        // DYE minted should roughly equal hTUSD minted
+        assertApproxEqRel(totalDYE * ecosystem.dyeToUSDRate(), totalHTUSD, 0.1e18);
     }
     
     function invariant_NoNegativeBalances() public {
@@ -565,7 +567,8 @@ contract DeployScript is Script {
         WEAVEToken weave = new WEAVEToken("uri://weave/{id}");
         FIBERToken fiber = new FIBERToken("uri://fiber/{id}");
         DYEToken dye = new DYEToken();
-        hUSDCToken husdc = new hUSDCToken();
+        TUSDToken tusd = new TUSDToken();
+        hTUSDToken htusd = new hTUSDToken();
         
         // Deploy registry
         WeaveRegistry registry = new WeaveRegistry(

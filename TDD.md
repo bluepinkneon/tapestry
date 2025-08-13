@@ -19,11 +19,12 @@ This document provides the comprehensive technical design for the Weave ecosyste
 - Gas optimization strategies
 
 ### 1.3 Definitions
-- **CRON**: Time-wrapped bundle containing WEAVE + DYE + [USDC/hUSDC]
+- **CRON**: Time-wrapped bundle containing WEAVE + DYE + [TUSD/hTUSD]
 - **WEAVE**: Soulbound token representing creation rights
 - **FIBER**: Final NFT output (comic-style journal entry)
 - **DYE**: Computational units for processing
-- **hUSDC**: USD hole tracking platform deficit
+- **TUSD**: Tapestry USD - native stablecoin pegged 1:1 to USD via company bank account
+- **hTUSD**: Tapestry USD hole tracking platform deficit
 - **Spinning**: The act of unwrapping CRON to access WEAVE
 
 ## 2. System Architecture
@@ -39,8 +40,8 @@ This document provides the comprehensive technical design for the Weave ecosyste
 │  └──────────┘  └──────────┘  └──────────┘  └────────┘ │
 │                                                          │
 │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌────────┐ │
-│  │  hUSDC   │  │   Pool   │  │ Factory  │  │Treasury│ │
-│  │  Deficit │  │   AMM    │  │Orchestr. │  │  USDC  │ │
+│  │  hTUSD   │  │   Pool   │  │ Factory  │  │Treasury│ │
+│  │  Deficit │  │   AMM    │  │Orchestr. │  │  TUSD  │ │
 │  └──────────┘  └──────────┘  └──────────┘  └────────┘ │
 └─────────────────────────────────────────────────────────┘
                               ↕
@@ -67,8 +68,8 @@ WeaveFactory (Main)
 │   ├── AdvertiserRegistry
 │   └── VendorRegistry
 ├── Treasury
-│   ├── hUSDCToken
-│   └── USDCInterface
+│   ├── hTUSDToken
+│   └── TUSDInterface
 └── SimpleCRONPool
     └── PriceDiscovery
 ```
@@ -81,8 +82,8 @@ contract CRONToken is ERC721 {
     struct CRONData {
         uint256 providerId;       // Provider who can process this
         uint256 dyeAmount;        // Computational units bundled
-        uint256 monetaryValue;    // USDC or hUSDC amount
-        bool isSubsidy;           // true = USDC subsidy, false = hUSDC premium
+        uint256 monetaryValue;    // TUSD or hTUSD amount
+        bool isSubsidy;           // true = TUSD subsidy, false = hTUSD premium
         address sponsor;          // Who created/paid for this
         uint256 expiryTime;       // 24-hour expiry timestamp
         bytes metadata;           // Sponsor branding/style/requirements
@@ -152,7 +153,7 @@ contract FIBERToken is ERC1155, ERC1155Metadata {
         uint256 createdAt;
         string ipfsHash;          // Comic content
         uint256 dyeUsed;          // Computational units consumed
-        uint256 costUSDC;         // Actual USD cost
+        uint256 costTUSD;         // Actual USD cost
         SponsorType sponsorType;
         address sponsor;
         string journalText;       // Original input
@@ -191,9 +192,9 @@ contract DYEToken is ERC20 {
 }
 ```
 
-### 3.5 hUSDC Token (ERC-20)
+### 3.5 hTUSD Token (ERC-20)
 ```solidity
-contract hUSDCToken is ERC20 {
+contract hTUSDToken is ERC20 {
     // Tracks platform deficit (costs incurred)
     // Minted when FIBER created (actual cost)
     // Burned when revenue received
@@ -223,8 +224,8 @@ contract WeaveFactory {
     WEAVEToken public weaveToken;
     FIBERToken public fiberToken;
     DYEToken public dyeToken;
-    hUSDCToken public husdcToken;
-    IERC20 public usdcToken;
+    hTUSDToken public htusdToken;
+    IERC20 public tusdToken;
     
     // Provider registry for variable DYE consumption
     mapping(uint256 => ProviderConfig) public providers;
@@ -244,7 +245,7 @@ contract WeaveFactory {
     function createVendorCRON(address recipient, uint256 premium, bytes calldata metadata) external;
     function spinCRON(uint256 cronId) external;
     function processExpiredCRON(uint256 cronId) external;
-    function completeWEAVE(uint256 weaveId, bool success, uint256 actualCostUSDC, string memory ipfsHash) external;
+    function completeWEAVE(uint256 weaveId, bool success, uint256 actualCostTUSD, string memory ipfsHash) external;
 }
 ```
 
@@ -334,7 +335,7 @@ contract SimpleCRONPool {
         return (usdcReserve * 1e18) / weaveReserve;
     }
     
-    function swapUSDCForWEAVE(uint256 usdcIn) external returns (uint256 weaveOut) {
+    function swapTUSDForWEAVE(uint256 tusdIn) external returns (uint256 weaveOut) {
         uint256 k = weaveReserve * usdcReserve;
         uint256 newUsdcReserve = usdcReserve + usdcIn;
         uint256 newWeaveReserve = k / newUsdcReserve;
@@ -360,7 +361,7 @@ contract SimpleCRONPool {
 3. User spins CRON within 24 hours
 4. Creates soulbound WEAVE, burns DYE
 5. Backend processes with AI
-6. WEAVE burns → FIBER minted + hUSDC minted
+6. WEAVE burns → FIBER minted + hTUSD minted
 ```
 
 ### 5.2 Advertiser Flow
@@ -369,7 +370,7 @@ contract SimpleCRONPool {
    - Pays: Distribution fee + WEAVE price + DYE cost + Subsidy
 2. User claims advertiser CRON
 3. User spins (free or profitable)
-4. Subsidy USDC burns equivalent hUSDC (deficit reduction!)
+4. Subsidy TUSD burns equivalent hTUSD (deficit reduction!)
 5. Creates branded FIBER
 ```
 
@@ -389,7 +390,7 @@ contract SimpleCRONPool {
 1. CRON not spun within 24 hours
 2. WEAVE returns to pool (becomes inventory)
 3. DYE returns to pool
-4. Any wrapped USDC/hUSDC is lost
+4. Any wrapped TUSD/hTUSD is lost
 5. Distribution fees never refunded
 ```
 
@@ -422,7 +423,7 @@ async function processWeave(job) {
     await contract.completeWEAVE(
       weaveId,
       true,                    // success
-      result.costUSDC * 1e6,   // actual cost in USDC decimals
+      result.costTUSD * 1e6,   // actual cost in TUSD decimals
       ipfsHash
     );
   } catch (error) {
@@ -430,7 +431,7 @@ async function processWeave(job) {
     await contract.completeWEAVE(
       weaveId,
       false,                   // failed
-      error.costUSDC * 1e6,    // cost still incurred
+      error.costTUSD * 1e6,    // cost still incurred
       ''
     );
   }
@@ -467,7 +468,7 @@ async function generateComic(journalData) {
       return {
         success: true,
         image,
-        costUSDC: totalCost,
+        costTUSD: totalCost,
         attempts: attempts + 1
       };
     } catch (error) {
@@ -476,7 +477,7 @@ async function generateComic(journalData) {
     }
   }
   
-  throw { costUSDC: totalCost, message: 'Max attempts reached' };
+  throw { costTUSD: totalCost, message: 'Max attempts reached' };
 }
 ```
 
@@ -547,7 +548,7 @@ struct CRONData {
     uint128 providerId;   // Which provider (Slot 1)
     uint128 dyeAmount;    // Computational units (Slot 1)
     uint64 expiryTime;    // Timestamp (Slot 2)
-    uint64 monetaryValue; // USDC amount (Slot 2)
+    uint64 monetaryValue; // TUSD amount (Slot 2)
     uint32 complexity;    // Complexity multiplier (Slot 2)
     address sponsor;      // 20 bytes (Slot 3)
     bool isSubsidy;       // 1 byte (Slot 3)
@@ -621,8 +622,8 @@ describe("Full Flow", () => {
     // Verify FIBER created
     expect(await fiberToken.ownerOf(1)).to.equal(user.address);
     
-    // Verify hUSDC minted
-    expect(await husdcToken.totalSupply()).to.equal(50000);
+    // Verify hTUSD minted
+    expect(await htusdToken.totalSupply()).to.equal(50000);
   });
 });
 ```
@@ -652,7 +653,7 @@ describe("Economic Model", () => {
 ## 10. Deployment Strategy
 
 ### 10.1 Deployment Order
-1. Deploy token contracts (DYE, hUSDC)
+1. Deploy token contracts (DYE, TUSD, hTUSD)
 2. Deploy WEAVEToken (soulbound)
 3. Deploy FIBERToken (NFT)
 4. Deploy SimpleCRONPool
@@ -667,27 +668,30 @@ describe("Economic Model", () => {
 async function deploy() {
   // Deploy tokens
   const DYE = await ethers.deployContract("DYEToken");
-  const hUSDC = await ethers.deployContract("hUSDCToken");
+  const TUSD = await ethers.deployContract("TUSDToken");
+  const hTUSD = await ethers.deployContract("hTUSDToken");
   const WEAVE = await ethers.deployContract("WEAVEToken");
   const FIBER = await ethers.deployContract("FIBERToken");
   
   // Deploy core contracts
   const Factory = await ethers.deployContract("WeaveFactory", [
     DYE.address,
-    hUSDC.address,
+    TUSD.address,
+    hTUSD.address,
     WEAVE.address,
     FIBER.address,
-    USDC_ADDRESS
+    // No external USDC needed - using native TUSD
   ]);
   
   // Configure permissions
   await DYE.grantRole(MINTER_ROLE, Factory.address);
-  await hUSDC.grantRole(MINTER_ROLE, Factory.address);
+  await TUSD.grantRole(MINTER_ROLE, Factory.address);
+  await hTUSD.grantRole(MINTER_ROLE, Factory.address);
   await WEAVE.grantRole(MINTER_ROLE, Factory.address);
   await FIBER.grantRole(MINTER_ROLE, Factory.address);
   
   // Initialize pools
-  await Pool.initialize(1000, 1000e6); // 1000 WEAVE, $1000 USDC
+  await Pool.initialize(1000, 1000e6); // 1000 WEAVE, $1000 TUSD
   
   console.log("Deployment complete!");
 }
@@ -734,7 +738,7 @@ type FIBER @entity {
   createdAt: BigInt!
   ipfsHash: String!
   dyeUsed: BigInt!
-  costUSDC: BigInt!
+  costTUSD: BigInt!
   sponsor: Sponsor
 }
 
@@ -795,7 +799,7 @@ contract WeaveFactoryV2 is WeaveFactoryV1, UUPSUpgradeable {
 
 The Weave ecosystem technical design provides a robust, scalable, and economically sustainable platform for transforming journal entries into NFT comics. The key innovations include:
 
-1. **Dual-token cost tracking** (DYE for operations, hUSDC for costs)
+1. **Dual-token cost tracking** (DYE for operations, hTUSD for costs)
 2. **Expired inventory monetization** (waste becomes product)
 3. **Deficit reduction via subsidies** (advertisers pay platform costs)
 4. **Resilient at any utilization** (works from 0% to 100%)

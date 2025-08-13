@@ -9,10 +9,17 @@
   },
   "scripts": {
     "test": "forge test",
-    "lint": "solhint 'src/**/*.sol'",
-    "lint:fix": "solhint 'src/**/*.sol' --fix",
-    "build": "forge build",
-    "fmt": "forge fmt"
+    "test:gas": "forge test --gas-report",
+    "test:coverage": "forge coverage",
+    "lint": "npm run lint:sol && npm run lint:format",
+    "lint:sol": "solhint --config .solhint.json 'src/**/*.sol'",
+    "lint:sol:fix": "solhint --config .solhint.json 'src/**/*.sol' --fix",
+    "lint:format": "forge fmt --check",
+    "format": "forge fmt",
+    "build": "forge build --sizes",
+    "clean": "forge clean",
+    "security": "slither src/",
+    "pre-commit": "npm run lint && npm run build && npm run test"
   },
   "repository": {
     "type": "git",
