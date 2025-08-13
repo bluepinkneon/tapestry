@@ -47,7 +47,7 @@ We use a combination of patterns optimized for different needs:
 
 #### Immutable Contracts
 - **Tokens**: DYE, hUSDC (Simple ERC-20s don't need upgrades)
-- **Core NFTs**: WEAVE, FIBER (Token logic is stable)
+- **Core NFTs**: CRON (ERC-721), WEAVE (ERC-1155), FIBER (ERC-1155)
 - **Pool**: SimpleCRONPool (AMM logic is well-tested)
 
 #### UUPS Upgradeable
@@ -113,11 +113,11 @@ The registry serves as the single source of truth for contract addresses:
 ```solidity
 contract WeaveRegistry {
     // Core token addresses (immutable after setting)
-    address public immutable CRON;
-    address public immutable WEAVE;
-    address public immutable FIBER;
-    address public immutable DYE;
-    address public immutable hUSDC;
+    address public immutable CRON;    // ERC-721 NFT
+    address public immutable WEAVE;   // ERC-1155 Semi-fungible
+    address public immutable FIBER;   // ERC-1155 Collections
+    address public immutable DYE;     // ERC-20 Fungible
+    address public immutable hUSDC;   // ERC-20 Deficit tracker
     
     // Upgradeable components
     address public factory;
@@ -128,6 +128,7 @@ contract WeaveRegistry {
     address public entitlementModule;
     address public advertiserModule;
     address public vendorModule;
+    address public providerRegistry;  // Multi-provider support
     
     // Events
     event FactoryUpdated(address indexed old, address indexed new);
@@ -241,14 +242,16 @@ contract OptimizedReentrancyGuard {
 
 ### Struct Packing
 ```solidity
-// Optimized struct - fits in 2 storage slots
+// Optimized struct for ERC-721 CRON metadata
 struct CronData {
-    uint128 weaveId;      // Slot 1
-    uint64 expiryTime;    // Slot 1 (128 + 64 = 192 bits)
-    uint64 dyeAmount;     // Slot 1 (192 + 64 = 256 bits)
-    address sponsor;      // Slot 2 (160 bits)
-    bool isSubsidy;       // Slot 2 (160 + 8 = 168 bits)
-    uint88 monetaryValue; // Slot 2 (168 + 88 = 256 bits)
+    uint128 providerId;   // Slot 1 - Which provider can process
+    uint128 dyeAmount;    // Slot 1 - Computational units
+    uint64 expiryTime;    // Slot 2 - 24-hour expiry
+    uint64 monetaryValue; // Slot 2 - USDC/hUSDC amount
+    uint32 complexity;    // Slot 2 - Complexity multiplier
+    address sponsor;      // Slot 3 - Who paid for this
+    bool isSubsidy;       // Slot 3 - Subsidy vs premium
+    // Total: 3 slots, optimized for NFT use
 }
 ```
 
@@ -420,10 +423,11 @@ contract UserVaultFactory {
 tapestry/
 ├── contracts/
 │   ├── tokens/
-│   │   ├── DYEToken.sol
-│   │   ├── hUSDCToken.sol
-│   │   ├── WEAVEToken.sol
-│   │   └── FIBERToken.sol
+│   │   ├── CRONToken.sol       // ERC-721 NFT
+│   │   ├── WEAVEToken.sol      // ERC-1155 Semi-fungible
+│   │   ├── FIBERToken.sol      // ERC-1155 Collections
+│   │   ├── DYEToken.sol        // ERC-20 Computational units
+│   │   └── hUSDCToken.sol      // ERC-20 Deficit tracker
 │   ├── core/
 │   │   ├── WeaveRegistry.sol
 │   │   ├── WeaveFactory.sol
@@ -431,7 +435,8 @@ tapestry/
 │   ├── modules/
 │   │   ├── EntitlementModule.sol
 │   │   ├── AdvertiserModule.sol
-│   │   └── VendorModule.sol
+│   │   ├── VendorModule.sol
+│   │   └── ProviderRegistry.sol  // Multi-provider management
 │   ├── pools/
 │   │   └── SimpleCRONPool.sol
 │   └── interfaces/
@@ -556,17 +561,19 @@ contract DeployScript is Script {
         vm.startBroadcast(deployerPrivateKey);
         
         // Deploy tokens
+        CRONToken cron = new CRONToken("Weave CRON", "CRON");
+        WEAVEToken weave = new WEAVEToken("uri://weave/{id}");
+        FIBERToken fiber = new FIBERToken("uri://fiber/{id}");
         DYEToken dye = new DYEToken();
         hUSDCToken husdc = new hUSDCToken();
-        WEAVEToken weave = new WEAVEToken();
-        FIBERToken fiber = new FIBERToken();
         
         // Deploy registry
         WeaveRegistry registry = new WeaveRegistry(
-            address(dye),
-            address(husdc),
+            address(cron),
             address(weave),
-            address(fiber)
+            address(fiber),
+            address(dye),
+            address(husdc)
         );
         
         // Deploy factory (UUPS)
