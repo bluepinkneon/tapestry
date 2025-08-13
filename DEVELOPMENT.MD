@@ -1,200 +1,366 @@
 # Weave Ecosystem Development Guide
 
-**Version**: 1.0  
+**Version**: 2.0  
 **Date**: August 13, 2025  
 **Purpose**: Technical development guide for implementing the Weave ecosystem smart contracts
 
 ## Table of Contents
-1. [Architecture Decisions](#architecture-decisions)
+1. [Architecture Overview](#architecture-overview)
 2. [Technology Stack](#technology-stack)
-3. [Contract Architecture](#contract-architecture)
-4. [Modern Solidity Patterns](#modern-solidity-patterns)
+3. [Contract Structure](#contract-structure)
+4. [Implementation Patterns](#implementation-patterns)
 5. [Security Best Practices](#security-best-practices)
-6. [Gas Optimization Strategies](#gas-optimization-strategies)
+6. [Gas Optimization](#gas-optimization)
 7. [Development Workflow](#development-workflow)
 8. [Testing Strategy](#testing-strategy)
 9. [Deployment Guide](#deployment-guide)
-10. [Future-Proofing](#future-proofing)
 
-## Architecture Decisions
+## Architecture Overview
 
-### Why NOT Diamond Standard (EIP-2535)
+### Design Philosophy
+The Weave ecosystem uses a **simple, modular architecture** optimized for clarity and gas efficiency. We explicitly avoid complex patterns like Diamond Standard in favor of straightforward, auditable contracts.
 
-While Diamond Standard offers unlimited contract size and modular upgrades, we've decided **against** using it for Weave because:
-
-1. **Unnecessary Complexity**: Our contracts don't approach the 24KB limit
-2. **Audit Difficulty**: Diamond patterns are harder to audit and verify
-3. **Debugging Challenges**: Complex delegate call patterns make debugging difficult
-4. **Overkill**: We don't need the extreme modularity Diamond provides
-
-### Our Approach: Hybrid Architecture
-
-We use a combination of patterns optimized for different needs:
-
+### System Architecture
 ```
 ┌─────────────────────────────────────────────────┐
-│              WeaveRegistry                       │
-│         (Central registry for discovery)         │
-└─────────────────┬───────────────────────────────┘
-                  │
-    ┌─────────────┼─────────────┬──────────────┐
-    ▼             ▼             ▼              ▼
-┌─────────┐  ┌──────────┐  ┌──────────┐  ┌─────────┐
-│ Tokens  │  │ Factory  │  │   Pool   │  │Treasury │
-│Immutable│  │   UUPS   │  │Immutable │  │  UUPS   │
-└─────────┘  └──────────┘  └──────────┘  └─────────┘
+│                 WeaveFactory                     │
+│          (Main Orchestrator Contract)            │
+└────────────────┬─────────────────────────────────┘
+                 │
+    ┌────────────┼────────────┬──────────┬─────────┐
+    ▼            ▼            ▼          ▼         ▼
+┌────────┐  ┌────────┐  ┌────────┐  ┌────────┐  ┌────────┐
+│  CRON  │  │ WEAVE  │  │ FIBER  │  │  DYE   │  │  TUSD  │
+│ERC-721 │  │ERC-1155│  │ERC-1155│  │ ERC-20 │  │ ERC-20 │
+└────────┘  └────────┘  └────────┘  └────────┘  └────────┘
+                                                      │
+                                                 ┌────────┐
+                                                 │ hTUSD  │
+                                                 │ ERC-20 │
+                                                 └────────┘
+
+┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
+│  Entitlement    │  │     Provider    │  │   SimpleCRON    │
+│    Manager      │  │     Registry    │  │      Pool       │
+└─────────────────┘  └─────────────────┘  └─────────────────┘
+
+┌─────────────────────────────────────────────────┐
+│                   Treasury                       │
+│            (Revenue & Deficit Management)        │
+└─────────────────────────────────────────────────┘
 ```
 
+### Contract Categories
+
 #### Immutable Contracts
-- **Tokens**: DYE, TUSD, hTUSD (Simple ERC-20s don't need upgrades)
-- **Core NFTs**: CRON (ERC-721), WEAVE (ERC-1155), FIBER (ERC-1155)
-- **Pool**: SimpleCRONPool (AMM logic is well-tested)
+These contracts are deployed once and never upgraded:
+- **Token Contracts**: DYE, TUSD, hTUSD, CRON, WEAVE, FIBER
+- **Core Logic**: SimpleCRONPool, EntitlementManager
 
-#### UUPS Upgradeable
-- **Factory**: Main orchestration (may need feature additions)
-- **Treasury**: Revenue management (may need new revenue streams)
-- **FeeManager**: Dynamic pricing (may need algorithm updates)
-
-#### Modular Components
-- **EntitlementModule**: Handles 6-hour distributions
-- **AdvertiserModule**: Manages subsidies
-- **VendorModule**: Handles premium transformations
+#### Upgradeable Contracts
+Using UUPS pattern for future flexibility:
+- **WeaveFactory**: Main orchestration logic
+- **Treasury**: Financial management
+- **ProviderRegistry**: AI provider management
 
 ## Technology Stack
 
-### Core Technologies
-- **Blockchain**: Tapestry L2 (Ethereum-compatible)
-- **Language**: Solidity 0.8.20+
-- **Framework**: Foundry
-- **Libraries**: OpenZeppelin Contracts 5.0
-- **Testing**: Forge (Foundry's testing framework)
-
-### Development Tools
+### Core Dependencies
 ```bash
-# Required installations
-curl -L https://foundry.paradigm.xyz | bash
-foundryup
+# Solidity version
+pragma solidity ^0.8.20;
 
-# Project setup
-forge init --no-commit
+# OpenZeppelin Contracts v5.0
 forge install OpenZeppelin/openzeppelin-contracts
-forge install OpenZeppelin/openzeppelin-contracts-upgradeable
+
+# Development framework
+Foundry (Forge, Cast, Anvil)
 ```
 
-### Configuration
+### Project Setup
+```bash
+# Initialize project
+forge init --no-commit
+cd tapestry
+
+# Install dependencies
+forge install OpenZeppelin/openzeppelin-contracts
+
+# Configure remappings
+echo '@openzeppelin/=lib/openzeppelin-contracts/' > remappings.txt
+```
+
+### Configuration (foundry.toml)
 ```toml
-# foundry.toml
 [profile.default]
-src = "contracts"
+src = "src"
 out = "out"
 libs = ["lib"]
-test = "test"
-cache = true
-
+solc = "0.8.20"
 optimizer = true
 optimizer_runs = 200
-solc_version = "0.8.20"
-
-# Enable new features
-evm_version = "shanghai"  # For PUSH0 opcode
-via_ir = true            # For better optimization
 
 [profile.production]
-optimizer = true
-optimizer_runs = 10000   # Optimize for many runs
+optimizer_runs = 10000
+via_ir = true
 ```
 
-## Contract Architecture
+## Contract Structure
 
-### Registry Pattern
+### Token Contracts
 
-The registry serves as the single source of truth for contract addresses:
-
+#### CRONToken.sol
 ```solidity
-contract WeaveRegistry {
-    // Core token addresses (immutable after setting)
-    address public immutable CRON;    // ERC-721 NFT
-    address public immutable WEAVE;   // ERC-1155 Semi-fungible
-    address public immutable FIBER;   // ERC-1155 Collections
-    address public immutable DYE;     // ERC-20 Fungible
-    address public immutable TUSD;    // ERC-20 Native stablecoin
-    address public immutable hTUSD;   // ERC-20 Deficit tracker
+pragma solidity ^0.8.20;
+
+import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+import "@openzeppelin/contracts/access/AccessControl.sol";
+
+contract CRONToken is ERC721, AccessControl {
+    struct CRONData {
+        uint16 providerId;
+        uint240 dyeAmount;
+        uint256 monetaryValue;
+        bool isSubsidy;
+        address sponsor;
+        uint256 expiryTime;
+        bytes metadata;
+    }
     
-    // Upgradeable components
-    address public factory;
-    address public treasury;
-    address public feeManager;
+    mapping(uint256 => CRONData) public cronData;
+    uint256 private _nextTokenId;
     
-    // Modules
-    address public entitlementModule;
-    address public advertiserModule;
-    address public vendorModule;
-    address public providerRegistry;  // Multi-provider support
+    bytes32 public constant FACTORY_ROLE = keccak256("FACTORY");
+    
+    function mint(address to, CRONData memory data) 
+        external 
+        onlyRole(FACTORY_ROLE) 
+        returns (uint256) 
+    {
+        uint256 tokenId = _nextTokenId++;
+        _safeMint(to, tokenId);
+        cronData[tokenId] = data;
+        cronData[tokenId].expiryTime = block.timestamp + 24 hours;
+        return tokenId;
+    }
+}
+```
+
+#### WEAVEToken.sol (Soulbound)
+```solidity
+pragma solidity ^0.8.20;
+
+import "@openzeppelin/contracts/token/ERC1155/ERC1155.sol";
+
+contract WEAVEToken is ERC1155, AccessControl {
+    // Token ID = (providerId << 240) | uniqueId
+    uint256 private _nextUniqueId;
+    
+    struct WEAVEData {
+        uint256 cronId;
+        address creator;
+        uint256 createdAt;
+        bytes sponsorData;
+    }
+    
+    mapping(uint256 => WEAVEData) public weaveData;
+    
+    // Override transfer to enforce soulbound
+    function _update(
+        address from,
+        address to,
+        uint256[] memory ids,
+        uint256[] memory values
+    ) internal override {
+        require(from == address(0), "WEAVE: Soulbound token");
+        super._update(from, to, ids, values);
+    }
+}
+```
+
+### Core Logic Contracts
+
+#### WeaveFactory.sol
+```solidity
+contract WeaveFactory is AccessControl, ReentrancyGuard {
+    // State variables
+    CRONToken public immutable cronToken;
+    WEAVEToken public immutable weaveToken;
+    FIBERToken public immutable fiberToken;
+    DYEToken public immutable dyeToken;
+    hTUSDToken public immutable htusdToken;
+    TUSDToken public immutable tusdToken;
+    
+    ProviderRegistry public providerRegistry;
+    EntitlementManager public entitlementManager;
+    SimpleCRONPool public pool;
+    Treasury public treasury;
+    
+    // Constants
+    uint256 public constant INITIAL_DYE_PRICE = 0.05e6; // $0.05
     
     // Events
-    event FactoryUpdated(address indexed old, address indexed new);
+    event CRONCreated(uint256 indexed tokenId, address indexed recipient);
+    event WEAVECreated(uint256 indexed weaveId, address indexed creator);
+    event FIBERCompleted(uint256 indexed fiberId, uint256 cost);
     
-    // Only owner can update upgradeable components
-    function updateFactory(address _factory) external onlyOwner {
-        emit FactoryUpdated(factory, _factory);
-        factory = _factory;
-    }
-}
-```
-
-### UUPS Proxy Pattern
-
-For upgradeable contracts, we use UUPS (Universal Upgradeable Proxy Standard):
-
-```solidity
-import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-
-contract WeaveFactoryV1 is UUPSUpgradeable, OwnableUpgradeable {
-    // State variables with gaps for future additions
-    uint256 public constant VERSION = 1;
-    
-    // ... contract logic ...
-    
-    // Reserve storage slots for future versions
-    uint256[50] private __gap;
-    
-    function _authorizeUpgrade(address newImplementation) 
-        internal 
-        override 
-        onlyOwner 
-    {}
-}
-```
-
-### Modular Design
-
-Each module handles a specific concern:
-
-```solidity
-// Entitlement Module
-contract EntitlementModule {
-    IWeaveRegistry public immutable registry;
-    uint256 public constant INTERVAL = 6 hours;
-    
-    mapping(address => uint256) public lastClaim;
-    
-    function claimEntitlement() external {
-        require(block.timestamp >= lastClaim[msg.sender] + INTERVAL);
-        lastClaim[msg.sender] = block.timestamp;
+    // Main functions
+    function createEntitlementCRON(address recipient) external {
+        // Get DYE amount from provider registry
+        uint256 dyeAmount = providerRegistry.getBaseDyeAmount(1); // OpenAI
         
-        IWeaveFactory(registry.factory()).createEntitlementCRON(msg.sender);
+        // Mint DYE
+        dyeToken.mint(address(this), dyeAmount);
+        
+        // Calculate and mint hTUSD for deficit tracking
+        uint256 dyePrice = _getDYEPrice();
+        uint256 htusdAmount = (dyeAmount * dyePrice) / 1e18;
+        htusdToken.mint(htusdAmount);
+        
+        // Get or mint WEAVE
+        uint256 weaveId = _obtainWEAVE();
+        
+        // Create CRON
+        CRONData memory data = CRONData({
+            providerId: 1,
+            dyeAmount: dyeAmount,
+            monetaryValue: 0,
+            isSubsidy: false,
+            sponsor: address(0),
+            expiryTime: 0, // Set by CRON contract
+            metadata: ""
+        });
+        
+        uint256 cronId = cronToken.mint(recipient, data);
+        emit CRONCreated(cronId, recipient);
+    }
+    
+    function spinCRON(uint256 cronId) external nonReentrant {
+        require(cronToken.ownerOf(cronId) == msg.sender, "Not owner");
+        CRONData memory data = cronToken.getCRONData(cronId);
+        require(block.timestamp < data.expiryTime, "Expired");
+        
+        // Burn CRON
+        cronToken.burn(cronId);
+        
+        // Burn DYE
+        dyeToken.burn(data.dyeAmount);
+        
+        // Create soulbound WEAVE
+        uint256 weaveId = _createWEAVE(msg.sender, cronId, data);
+        
+        // Handle monetary value
+        if (data.monetaryValue > 0) {
+            if (data.isSubsidy) {
+                // User receives TUSD subsidy
+                tusdToken.transfer(msg.sender, data.monetaryValue);
+            } else {
+                // User pays hTUSD premium to vendor
+                require(htusdToken.balanceOf(msg.sender) >= data.monetaryValue);
+                htusdToken.transferFrom(msg.sender, data.sponsor, data.monetaryValue);
+            }
+        }
+        
+        emit WEAVECreated(weaveId, msg.sender);
     }
 }
 ```
 
-## Modern Solidity Patterns
+#### SimpleCRONPool.sol
+```solidity
+contract SimpleCRONPool is AccessControl {
+    uint256 public weaveReserve;
+    uint256 public tusdReserve;
+    bool public poolOpen;
+    
+    WeaveFactory public factory;
+    DYEToken public dyeToken;
+    hTUSDToken public htusdToken;
+    
+    modifier whenOpen() {
+        require(poolOpen, "Pool closed");
+        _;
+    }
+    
+    function addWEAVE(uint256 amount) external onlyRole(FACTORY_ROLE) {
+        weaveReserve += amount;
+    }
+    
+    function openPool() external onlyRole(ADMIN_ROLE) {
+        require(weaveReserve >= 100, "Insufficient inventory");
+        poolOpen = true;
+    }
+    
+    function getPrice() public view returns (uint256) {
+        if (weaveReserve == 0) return getDYEPrice();
+        return (tusdReserve * 1e18) / weaveReserve;
+    }
+    
+    function getDYEPrice() public view returns (uint256) {
+        uint256 htusdSupply = htusdToken.totalSupply();
+        uint256 dyeSupply = dyeToken.totalSupply();
+        
+        if (dyeSupply == 0) return factory.INITIAL_DYE_PRICE();
+        return (htusdSupply * 1e18) / dyeSupply;
+    }
+    
+    function swapTUSDForWEAVE(uint256 tusdAmount) 
+        external 
+        whenOpen 
+        returns (uint256) 
+    {
+        // Standard AMM swap logic
+        uint256 k = weaveReserve * tusdReserve;
+        uint256 newTusdReserve = tusdReserve + tusdAmount;
+        uint256 newWeaveReserve = k / newTusdReserve;
+        uint256 weaveOut = weaveReserve - newWeaveReserve;
+        
+        // Update reserves
+        tusdReserve = newTusdReserve;
+        weaveReserve = newWeaveReserve;
+        
+        // Transfer tokens
+        tusdToken.transferFrom(msg.sender, address(this), tusdAmount);
+        _transferWEAVE(msg.sender, weaveOut);
+        
+        // Check and maintain price floor
+        _maintainPriceFloor();
+        
+        return weaveOut;
+    }
+    
+    function _maintainPriceFloor() private {
+        uint256 dyePrice = getDYEPrice();
+        uint256 poolPrice = getPrice();
+        
+        if (poolPrice < dyePrice) {
+            uint256 deficit = (weaveReserve * dyePrice / 1e18) - tusdReserve;
+            
+            // Mint hTUSD to track cost
+            htusdToken.mint(deficit);
+            
+            // Burn DYE to maintain price
+            uint256 dyeToBurn = deficit * 1e18 / dyePrice;
+            dyeToken.burn(dyeToBurn);
+            
+            // Add TUSD to pool
+            tusdReserve += deficit;
+            
+            emit PriceFloorMaintained(deficit, dyeToBurn);
+        }
+    }
+}
+```
+
+## Implementation Patterns
 
 ### Custom Errors (Gas Efficient)
 ```solidity
-// Instead of require strings
 error InsufficientBalance(uint256 requested, uint256 available);
 error CRONExpired(uint256 cronId, uint256 expiredAt);
-error Unauthorized(address caller, bytes32 requiredRole);
+error Unauthorized(address caller);
+error PoolClosed();
+error WEAVESoulbound();
 
 // Usage
 if (balance < amount) {
@@ -202,219 +368,132 @@ if (balance < amount) {
 }
 ```
 
-### User-Defined Value Types
+### Packed Structs
 ```solidity
-// Type safety without overhead
-type CronId is uint256;
-type DyeAmount is uint256;
-type UserId is address;
-
-// Prevents mixing up parameters
-function processCRON(CronId cronId, DyeAmount dye) external {
-    // Can't accidentally pass DyeAmount where CronId expected
+struct PackedCRONData {
+    uint16 providerId;      // 2 bytes
+    uint80 dyeAmount;       // 10 bytes
+    uint32 expiryOffset;    // 4 bytes - seconds from creation
+    // Total: 16 bytes = 1 slot
+    
+    uint128 monetaryValue;  // 16 bytes
+    uint128 sponsorLower;   // Lower 16 bytes of address
+    // Total: 32 bytes = 1 slot
+    
+    uint32 sponsorUpper;    // Upper 4 bytes of address
+    bool isSubsidy;         // 1 byte
+    // Metadata stored separately
 }
 ```
 
-### Named Mappings
+### Modifiers Pattern
 ```solidity
-// Clear, self-documenting code
-mapping(address user => mapping(CronId => CronData)) public userCrons;
-mapping(UserId user => EntitlementData) public entitlements;
-mapping(address advertiser => CampaignData) public campaigns;
-```
-
-### Transient Storage (EIP-1153)
-```solidity
-// Gas-efficient temporary storage (cleared after transaction)
-contract OptimizedReentrancyGuard {
-    // Slot 0 for reentrancy flag
-    modifier nonReentrant() {
-        assembly {
-            if tload(0) { revert(0, 0) }
-            tstore(0, 1)
-        }
-        _;
-        assembly {
-            tstore(0, 0)
-        }
-    }
+modifier onlyActiveCRON(uint256 cronId) {
+    require(cronToken.ownerOf(cronId) != address(0), "CRON does not exist");
+    require(!cronToken.isExpired(cronId), "CRON expired");
+    _;
 }
-```
 
-### Struct Packing
-```solidity
-// Optimized struct for ERC-721 CRON metadata
-struct CronData {
-    uint128 providerId;   // Slot 1 - Which provider can process
-    uint128 dyeAmount;    // Slot 1 - Computational units
-    uint64 expiryTime;    // Slot 2 - 24-hour expiry
-    uint64 monetaryValue; // Slot 2 - TUSD/hTUSD amount
-    uint32 complexity;    // Slot 2 - Complexity multiplier
-    address sponsor;      // Slot 3 - Who paid for this
-    bool isSubsidy;       // Slot 3 - Subsidy vs premium
-    // Total: 3 slots, optimized for NFT use
+modifier onlyBackend() {
+    require(hasRole(BACKEND_ROLE, msg.sender), "Not backend");
+    _;
 }
 ```
 
 ## Security Best Practices
 
-### Access Control
+### Access Control Hierarchy
 ```solidity
-contract SecureContract {
-    using AccessControl for *;
-    
-    bytes32 public constant OPERATOR_ROLE = keccak256("OPERATOR");
+contract SecureFactory {
+    bytes32 public constant ADMIN_ROLE = 0x00;
+    bytes32 public constant FACTORY_ROLE = keccak256("FACTORY");
     bytes32 public constant BACKEND_ROLE = keccak256("BACKEND");
+    bytes32 public constant TREASURY_ROLE = keccak256("TREASURY");
     
-    modifier onlyOperator() {
-        if (!hasRole(OPERATOR_ROLE, msg.sender)) {
-            revert Unauthorized(msg.sender, OPERATOR_ROLE);
-        }
-        _;
+    constructor() {
+        _grantRole(ADMIN_ROLE, msg.sender);
+        _setRoleAdmin(FACTORY_ROLE, ADMIN_ROLE);
+        _setRoleAdmin(BACKEND_ROLE, ADMIN_ROLE);
+        _setRoleAdmin(TREASURY_ROLE, ADMIN_ROLE);
     }
 }
 ```
 
-### Circuit Breaker Pattern
+### Reentrancy Protection
 ```solidity
-contract EmergencyStop {
-    bool private stopped;
+contract NonReentrant {
+    uint256 private _status = 1;
     
-    modifier stopInEmergency() {
-        if (stopped) revert("Emergency stop");
+    modifier nonReentrant() {
+        require(_status == 1, "Reentrant call");
+        _status = 2;
         _;
-    }
-    
-    modifier onlyInEmergency() {
-        if (!stopped) revert("Not in emergency");
-        _;
-    }
-    
-    function emergencyStop() external onlyOwner {
-        stopped = true;
-        emit EmergencyStopped(msg.sender);
-    }
-}
-```
-
-### Time-Locked Administration
-```solidity
-contract TimeLocked {
-    uint256 constant TIMELOCK = 48 hours;
-    
-    struct PendingAction {
-        address target;
-        bytes data;
-        uint256 executeAfter;
-    }
-    
-    mapping(bytes32 => PendingAction) public pendingActions;
-    
-    function proposeAction(address target, bytes calldata data) 
-        external 
-        onlyOwner 
-        returns (bytes32 actionId) 
-    {
-        actionId = keccak256(abi.encode(target, data, block.timestamp));
-        pendingActions[actionId] = PendingAction({
-            target: target,
-            data: data,
-            executeAfter: block.timestamp + TIMELOCK
-        });
-    }
-    
-    function executeAction(bytes32 actionId) external onlyOwner {
-        PendingAction memory action = pendingActions[actionId];
-        require(block.timestamp >= action.executeAfter, "Still locked");
-        
-        delete pendingActions[actionId];
-        (bool success,) = action.target.call(action.data);
-        require(success, "Execution failed");
+        _status = 1;
     }
 }
 ```
 
 ### Pull Payment Pattern
 ```solidity
-contract PullPayment {
-    mapping(address => uint256) private payments;
+mapping(address => uint256) private _pendingPayments;
+
+function withdraw() external nonReentrant {
+    uint256 payment = _pendingPayments[msg.sender];
+    require(payment > 0, "No payment pending");
     
-    function asyncTransfer(address dest, uint256 amount) internal {
-        payments[dest] += amount;
-    }
+    _pendingPayments[msg.sender] = 0;
     
-    function withdrawPayments(address payable payee) external {
-        uint256 payment = payments[payee];
-        payments[payee] = 0;
-        payee.sendValue(payment);
-    }
+    (bool success, ) = msg.sender.call{value: payment}("");
+    require(success, "Transfer failed");
 }
 ```
 
-## Gas Optimization Strategies
+## Gas Optimization
 
 ### Batch Operations
 ```solidity
-function batchProcessExpiredCRONs(CronId[] calldata cronIds) external {
-    unchecked {  // Safe: we control array iteration
-        for (uint256 i; i < cronIds.length; ++i) {
-            if (_isExpired(cronIds[i])) {
-                _processExpired(cronIds[i]);
-            }
+function processExpiredCRONBatch(uint256[] calldata cronIds) external {
+    uint256 length = cronIds.length;
+    for (uint256 i; i < length;) {
+        if (cronToken.isExpired(cronIds[i])) {
+            _processExpiredCRON(cronIds[i]);
         }
+        unchecked { ++i; }
     }
 }
 ```
 
 ### Storage vs Memory
 ```solidity
-// Expensive: multiple storage reads
-function badPattern() external view returns (uint256) {
-    return userBalance[msg.sender] + userBalance[msg.sender] * 2;
+// Bad: Multiple storage reads
+function calculateTotal() external view returns (uint256) {
+    return userBalance[msg.sender] + userBalance[msg.sender] * rate;
 }
 
-// Cheaper: single storage read
-function goodPattern() external view returns (uint256) {
-    uint256 balance = userBalance[msg.sender];  // Cache in memory
-    return balance + balance * 2;
-}
-```
-
-### Events for Data Storage
-```solidity
-// Store non-critical data in events instead of storage
-event CronMetadata(uint256 indexed cronId, string ipfsHash, bytes metadata);
-
-function createCRON() external {
-    uint256 cronId = nextCronId++;
-    // Only store essential data in storage
-    crons[cronId] = CronData({
-        owner: msg.sender,
-        expiryTime: block.timestamp + 24 hours
-    });
-    
-    // Emit detailed metadata in event (much cheaper)
-    emit CronMetadata(cronId, ipfsHash, additionalData);
+// Good: Single storage read
+function calculateTotal() external view returns (uint256) {
+    uint256 balance = userBalance[msg.sender];
+    return balance + balance * rate;
 }
 ```
 
-### Minimal Proxy Pattern
+### Events for Data
 ```solidity
-import "@openzeppelin/contracts/proxy/Clones.sol";
-
-contract UserVaultFactory {
-    address public immutable vaultImplementation;
-    
-    constructor() {
-        vaultImplementation = address(new UserVault());
-    }
-    
-    function createVault() external returns (address vault) {
-        // Deploy minimal proxy (much cheaper than full contract)
-        vault = Clones.clone(vaultImplementation);
-        UserVault(vault).initialize(msg.sender);
-    }
+// Store only essential data in storage
+struct MinimalFIBER {
+    address creator;
+    uint256 createdAt;
 }
+
+// Emit detailed data in events
+event FIBERCreated(
+    uint256 indexed fiberId,
+    address indexed creator,
+    string ipfsHash,
+    uint256 dyeUsed,
+    uint256 actualCost,
+    bytes metadata
+);
 ```
 
 ## Development Workflow
@@ -422,49 +501,42 @@ contract UserVaultFactory {
 ### Project Structure
 ```
 tapestry/
-├── contracts/
+├── src/
 │   ├── tokens/
-│   │   ├── CRONToken.sol       // ERC-721 NFT
-│   │   ├── WEAVEToken.sol      // ERC-1155 Semi-fungible
-│   │   ├── FIBERToken.sol      // ERC-1155 Collections
-│   │   ├── DYEToken.sol        // ERC-20 Computational units
-│   │   ├── TUSDToken.sol       // ERC-20 Native stablecoin
-│   │   └── hTUSDToken.sol      // ERC-20 Deficit tracker
+│   │   ├── CRONToken.sol
+│   │   ├── WEAVEToken.sol
+│   │   ├── FIBERToken.sol
+│   │   ├── DYEToken.sol
+│   │   ├── TUSDToken.sol
+│   │   └── hTUSDToken.sol
 │   ├── core/
-│   │   ├── WeaveRegistry.sol
 │   │   ├── WeaveFactory.sol
+│   │   ├── EntitlementManager.sol
+│   │   ├── ProviderRegistry.sol
 │   │   └── Treasury.sol
-│   ├── modules/
-│   │   ├── EntitlementModule.sol
-│   │   ├── AdvertiserModule.sol
-│   │   ├── VendorModule.sol
-│   │   └── ProviderRegistry.sol  // Multi-provider management
 │   ├── pools/
 │   │   └── SimpleCRONPool.sol
 │   └── interfaces/
-│       └── IWeaveEcosystem.sol
+│       ├── ICRON.sol
+│       ├── IWEAVE.sol
+│       └── IFIBER.sol
 ├── test/
 │   ├── unit/
 │   ├── integration/
-│   ├── invariant/
-│   └── utils/
-│       └── TestHelpers.sol
+│   └── invariant/
 ├── script/
 │   ├── Deploy.s.sol
-│   └── Upgrade.s.sol
+│   └── Configure.s.sol
 └── foundry.toml
 ```
 
 ### Development Commands
 ```bash
-# Build contracts
+# Build
 forge build
 
-# Run tests
-forge test
-
-# Run specific test
-forge test --match-test testCRONExpiry
+# Test
+forge test -vvv
 
 # Gas report
 forge test --gas-report
@@ -472,82 +544,79 @@ forge test --gas-report
 # Coverage
 forge coverage
 
-# Format code
-forge fmt
+# Deploy locally
+forge script script/Deploy.s.sol --rpc-url localhost --broadcast
 
-# Security check
-slither .
+# Verify contract
+forge verify-contract ADDRESS ContractName --chain-id 1
 ```
 
 ## Testing Strategy
 
-### Unit Testing
+### Unit Tests
 ```solidity
-contract DYETokenTest is Test {
-    DYEToken dye;
+contract CRONTokenTest is Test {
+    CRONToken cron;
     address alice = makeAddr("alice");
     
     function setUp() public {
-        dye = new DYEToken();
+        cron = new CRONToken();
+        cron.grantRole(cron.FACTORY_ROLE(), address(this));
     }
     
-    function test_MintDYE() public {
-        uint256 amount = 1000;
-        dye.mint(alice, amount);
-        assertEq(dye.balanceOf(alice), amount);
+    function test_MintCRON() public {
+        CRONData memory data = _getCRONData();
+        uint256 tokenId = cron.mint(alice, data);
+        
+        assertEq(cron.ownerOf(tokenId), alice);
+        assertEq(cron.cronData(tokenId).dyeAmount, data.dyeAmount);
     }
     
-    function testFuzz_MintDYE(uint256 amount) public {
-        vm.assume(amount < type(uint256).max);
-        dye.mint(alice, amount);
-        assertEq(dye.balanceOf(alice), amount);
+    function test_CRONExpiry() public {
+        uint256 tokenId = cron.mint(alice, _getCRONData());
+        
+        vm.warp(block.timestamp + 24 hours + 1);
+        assertTrue(cron.isExpired(tokenId));
     }
 }
 ```
 
-### Integration Testing
+### Integration Tests
 ```solidity
-contract FullFlowTest is Test {
+contract EntitlementFlowTest is Test {
     WeaveEcosystem ecosystem;
     
-    function test_EntitlementToFIBER() public {
-        // Setup
+    function test_FullEntitlementFlow() public {
         address user = makeAddr("user");
-        vm.startPrank(user);
         
         // Claim entitlement
+        vm.prank(user);
         ecosystem.claimEntitlement();
         
         // Spin CRON
+        vm.prank(user);
         ecosystem.spinCRON(1);
         
-        // Simulate backend
-        vm.stopPrank();
+        // Backend processes
         vm.prank(backend);
         ecosystem.completeWEAVE(1, true, 50000, "ipfs://");
         
-        // Verify
-        assertEq(ecosystem.fiberToken().ownerOf(1), user);
+        // Verify FIBER created
+        assertEq(ecosystem.fiberToken().balanceOf(user, 1), 1);
     }
 }
 ```
 
-### Invariant Testing
+### Invariant Tests
 ```solidity
 contract InvariantTest is Test {
-    WeaveEcosystem ecosystem;
-    
-    function invariant_ConservationOfValue() public {
-        uint256 totalDYE = ecosystem.dyeToken().totalSupply();
-        uint256 totalHTUSD = ecosystem.htusdToken().totalSupply();
-        
-        // DYE minted should roughly equal hTUSD minted
-        assertApproxEqRel(totalDYE * ecosystem.dyeToUSDRate(), totalHTUSD, 0.1e18);
+    function invariant_DYEPriceAlwaysPositive() public {
+        uint256 price = pool.getDYEPrice();
+        assertTrue(price > 0);
     }
     
     function invariant_NoNegativeBalances() public {
-        assertTrue(address(ecosystem.treasury()).balance >= 0);
-        assertTrue(ecosystem.usdcToken().balanceOf(address(ecosystem.treasury())) >= 0);
+        assertTrue(address(treasury).balance >= 0);
     }
 }
 ```
@@ -559,164 +628,100 @@ contract InvariantTest is Test {
 // script/Deploy.s.sol
 contract DeployScript is Script {
     function run() external {
-        uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
-        vm.startBroadcast(deployerPrivateKey);
+        uint256 deployerKey = vm.envUint("PRIVATE_KEY");
+        vm.startBroadcast(deployerKey);
         
         // Deploy tokens
-        CRONToken cron = new CRONToken("Weave CRON", "CRON");
-        WEAVEToken weave = new WEAVEToken("uri://weave/{id}");
-        FIBERToken fiber = new FIBERToken("uri://fiber/{id}");
         DYEToken dye = new DYEToken();
         TUSDToken tusd = new TUSDToken();
         hTUSDToken htusd = new hTUSDToken();
+        CRONToken cron = new CRONToken();
+        WEAVEToken weave = new WEAVEToken();
+        FIBERToken fiber = new FIBERToken();
         
-        // Deploy registry
-        WeaveRegistry registry = new WeaveRegistry(
+        // Deploy core
+        ProviderRegistry registry = new ProviderRegistry();
+        EntitlementManager entitlements = new EntitlementManager();
+        SimpleCRONPool pool = new SimpleCRONPool();
+        Treasury treasury = new Treasury();
+        
+        // Deploy factory
+        WeaveFactory factory = new WeaveFactory(
             address(cron),
             address(weave),
             address(fiber),
             address(dye),
-            address(husdc)
+            address(tusd),
+            address(htusd),
+            address(registry),
+            address(entitlements),
+            address(pool),
+            address(treasury)
         );
         
-        // Deploy factory (UUPS)
-        WeaveFactory factoryImpl = new WeaveFactory();
-        ERC1967Proxy factoryProxy = new ERC1967Proxy(
-            address(factoryImpl),
-            abi.encodeCall(factoryImpl.initialize, (address(registry)))
-        );
-        
-        // Update registry
-        registry.updateFactory(address(factoryProxy));
+        // Configure roles
+        cron.grantRole(cron.FACTORY_ROLE(), address(factory));
+        weave.grantRole(weave.FACTORY_ROLE(), address(factory));
+        fiber.grantRole(fiber.FACTORY_ROLE(), address(factory));
+        dye.grantRole(dye.MINTER_ROLE(), address(factory));
         
         vm.stopBroadcast();
         
         // Log addresses
-        console.log("Registry:", address(registry));
-        console.log("Factory:", address(factoryProxy));
+        console.log("Factory:", address(factory));
+        console.log("Pool:", address(pool));
     }
 }
 ```
 
-### Deployment Commands
+### Deployment Steps
+1. Deploy to testnet first
+2. Verify all contracts
+3. Configure roles and permissions
+4. Run integration tests on testnet
+5. Deploy to mainnet with multisig
+6. Transfer ownership to multisig
+
+### Post-Deployment
 ```bash
-# Deploy to local
-forge script script/Deploy.s.sol --rpc-url http://localhost:8545 --broadcast
+# Verify contracts
+forge verify-contract CONTRACT_ADDRESS ContractName
 
-# Deploy to testnet
-forge script script/Deploy.s.sol --rpc-url $TAPESTRY_TESTNET_RPC --broadcast --verify
+# Check deployment
+cast call CONTRACT_ADDRESS "owner()"
 
-# Deploy to mainnet
-forge script script/Deploy.s.sol --rpc-url $TAPESTRY_MAINNET_RPC --broadcast --verify --slow
-```
-
-### Verification
-```bash
-# Verify on Etherscan-compatible explorer
-forge verify-contract \
-    --chain-id 42161 \
-    --num-of-optimizations 200 \
-    --compiler-version v0.8.20 \
-    $CONTRACT_ADDRESS \
-    contracts/tokens/DYEToken.sol:DYEToken
-```
-
-## Future-Proofing
-
-### Account Abstraction Support (ERC-4337)
-```solidity
-contract AACompatible {
-    // Support for smart contract wallets
-    function validateUserOp(
-        UserOperation calldata userOp,
-        bytes32 userOpHash,
-        uint256 missingAccountFunds
-    ) external returns (uint256 validationData) {
-        // Validate signature and pay gas
-    }
-}
-```
-
-### Cross-Chain Considerations
-```solidity
-contract CrossChainEnabled {
-    // Support for LayerZero or similar
-    mapping(uint16 => bytes) public trustedRemotes;
-    
-    function setTrustedRemote(uint16 _chainId, bytes calldata _path) external onlyOwner {
-        trustedRemotes[_chainId] = _path;
-    }
-}
-```
-
-### Upgrade Patterns
-```solidity
-contract WeaveFactoryV2 is WeaveFactoryV1 {
-    // New state variables after __gap
-    uint256 public newFeature;
-    
-    function initializeV2(uint256 _newFeature) external reinitializer(2) {
-        newFeature = _newFeature;
-    }
-    
-    // Override version
-    function version() public pure override returns (uint256) {
-        return 2;
-    }
-}
-```
-
-### Migration Strategy
-```solidity
-contract MigrationHelper {
-    function migrateUsers(
-        address[] calldata users,
-        uint256[] calldata balances
-    ) external onlyOwner {
-        for (uint256 i = 0; i < users.length; i++) {
-            newContract.setBalance(users[i], balances[i]);
-        }
-    }
-}
+# Grant roles
+cast send CONTRACT_ADDRESS "grantRole(bytes32,address)" ROLE ADDRESS
 ```
 
 ## Best Practices Checklist
 
 ### Before Development
-- [ ] Define clear contract interfaces
-- [ ] Plan upgrade strategy
-- [ ] Design gas-efficient data structures
-- [ ] Consider account abstraction
+- [ ] Review TDD.md for complete specifications
+- [ ] Set up development environment
+- [ ] Configure linting and formatting
 
 ### During Development
-- [ ] Use custom errors instead of require strings
+- [ ] Use custom errors
 - [ ] Pack structs efficiently
-- [ ] Cache storage variables in memory
-- [ ] Use events for non-critical data
-- [ ] Implement circuit breakers
-- [ ] Add comprehensive natspec comments
+- [ ] Implement access control
+- [ ] Add comprehensive events
+- [ ] Write tests alongside code
 
 ### Before Deployment
 - [ ] Run full test suite
-- [ ] Check gas consumption
-- [ ] Run security analysis (Slither, Mythril)
-- [ ] Get code audited
-- [ ] Test upgrade process
-- [ ] Verify on testnet
+- [ ] Check gas usage
+- [ ] Run security analysis
+- [ ] Review with team
+- [ ] Prepare deployment scripts
 
 ### After Deployment
 - [ ] Verify all contracts
 - [ ] Set up monitoring
-- [ ] Document contract addresses
-- [ ] Transfer ownership to multisig
-- [ ] Set up incident response plan
-
-## Conclusion
-
-This development guide provides a modern, secure, and gas-efficient approach to building the Weave ecosystem. By avoiding unnecessary complexity (like Diamond Standard) and embracing proven patterns (UUPS, Registry, Modular design), we create a maintainable and upgradeable system that can evolve with user needs while maintaining security and efficiency.
-
-Remember: **Simplicity is the ultimate sophistication**. Use the simplest pattern that meets your needs.
+- [ ] Document addresses
+- [ ] Transfer to multisig
+- [ ] Monitor first transactions
 
 ---
 
-*For questions or suggestions, please open an issue in the repository.*
+*This development guide should be used in conjunction with TDD.md for complete implementation details.*

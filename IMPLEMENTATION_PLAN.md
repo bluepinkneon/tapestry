@@ -1,379 +1,374 @@
 # Weave Ecosystem Implementation Plan
 
-**Version**: 1.0  
+**Version**: 2.0  
 **Date**: August 13, 2025  
-**Timeline**: 12-16 weeks  
-**Team Size**: 2-4 developers
+**Timeline**: 8-10 weeks  
+**Team Size**: 2-3 developers
 
 ## Executive Summary
 
-This implementation plan outlines a phased approach to building the Weave ecosystem on Tapestry L2. The plan prioritizes core functionality, ensures thorough testing at each phase, and maintains flexibility for adjustments based on learnings.
+This implementation plan outlines a phased approach to building the Weave ecosystem on Tapestry L2, based on the clarified protocol design in TDD.md v2.0. The plan prioritizes core functionality, ensures thorough testing, and includes a soft launch period for gathering operational data before opening the secondary market pool.
 
 ## Phase Overview
 
-```mermaid
-gantt
-    title Weave Implementation Timeline
-    dateFormat  YYYY-MM-DD
-    section Phase 1
-    Core Tokens           :2025-08-14, 14d
-    section Phase 2
-    Registry & Factory    :14d
-    section Phase 3
-    Economic Modules      :21d
-    section Phase 4
-    Backend Integration   :14d
-    section Phase 5
-    Testing & Audit       :21d
-    section Phase 6
-    Mainnet Deployment    :7d
+```
+Week 1-2: Foundation & Tokens
+Week 3-4: Core Logic & Factory
+Week 5: Entitlements & Provider Registry  
+Week 6: Pool & Treasury
+Week 7: Testing & Integration
+Week 8: Soft Launch (Entitlements Only)
+Week 9: Pool Opening
+Week 10: Full Production
 ```
 
-## Phase 1: Foundation (Weeks 1-2)
+## Phase 1: Foundation & Tokens (Weeks 1-2)
 
 ### Goals
 - Set up development environment
-- Implement core token contracts
+- Implement all token contracts
 - Establish testing framework
 
-### Tasks
-
-#### Week 1: Environment Setup
-- [ ] Initialize Foundry project
-- [ ] Configure development environment
-- [ ] Set up CI/CD pipeline
-- [ ] Create project structure
-
-```bash
-# Commands to run
-forge init --no-commit
-forge install OpenZeppelin/openzeppelin-contracts
-forge install OpenZeppelin/openzeppelin-contracts-upgradeable
-```
-
-#### Week 2: Core Tokens
+### Week 1: Environment & Basic Tokens
+#### Tasks
+- [ ] Initialize Foundry project with proper structure
+- [ ] Configure development environment and linting
 - [ ] Implement DYEToken (ERC-20)
-- [ ] Implement TUSDToken (ERC-20)
-- [ ] Implement hTUSDToken (ERC-20)
-- [ ] Implement CRONToken (ERC-721)
+- [ ] Implement TUSDToken (ERC-20 with bank reserves)
+- [ ] Implement hTUSDToken (ERC-20 deficit tracker)
 - [ ] Write unit tests for each token
 
-### Deliverables
+#### Deliverables
 - Working development environment
-- Basic token contracts with tests
+- Three ERC-20 tokens with tests
 - CI/CD pipeline running tests
 
-### Success Criteria
-- All tokens deployable to local testnet
-- 100% test coverage for token contracts
-- Gas optimization benchmarks established
+### Week 2: NFT Tokens
+#### Tasks
+- [ ] Implement CRONToken (ERC-721 with 24hr expiry)
+- [ ] Implement WEAVEToken (ERC-1155 soulbound)
+- [ ] Implement FIBERToken (ERC-1155 collections)
+- [ ] Implement token ID structure (providerId << 240 | uniqueId)
+- [ ] Write comprehensive unit tests
 
-## Phase 2: NFT Infrastructure (Weeks 3-4)
+#### Deliverables
+- All 6 tokens implemented
+- 100% test coverage for tokens
+- Gas optimization benchmarks
 
-### Goals
-- Implement semi-fungible token contracts
-- Create provider registry system
-- Build token interaction logic
+## Phase 2: Core Logic & Factory (Weeks 3-4)
+
+### Week 3: Factory Foundation
+#### Tasks
+- [ ] Implement WeaveFactory base contract
+- [ ] Implement createEntitlementCRON function
+- [ ] Implement spinCRON function
+- [ ] Implement expiry compaction logic
+- [ ] Add access control roles
+
+#### Deliverables
+- WeaveFactory contract with basic flows
+- Role-based access control
+- Integration with token contracts
+
+### Week 4: Advanced Factory Features
+#### Tasks
+- [ ] Implement createAdvertiserCRON function
+- [ ] Implement createVendorCRON function
+- [ ] Add distribution fee collection
+- [ ] Implement completeWEAVE backend function
+- [ ] Add comprehensive events
+
+#### Deliverables
+- Complete factory functionality
+- All three CRON types working
+- Backend integration ready
+
+## Phase 3: Supporting Contracts (Week 5)
 
 ### Tasks
-
-#### Week 3: ERC-1155 Implementation
-- [ ] Implement WEAVEToken (ERC-1155 + Soulbound)
-- [ ] Implement FIBERToken (ERC-1155 Collections)
-- [ ] Create ProviderRegistry contract
-- [ ] Implement token metadata systems
-
-#### Week 4: Registry & Factory Base
-- [ ] Implement WeaveRegistry contract
-- [ ] Create WeaveFactory base contract (UUPS)
-- [ ] Implement access control systems
+- [ ] Implement EntitlementManager (6-hour relative timing)
+- [ ] Implement ProviderRegistry (OpenAI as provider 1)
+- [ ] Configure provider DYE consumption rates
+- [ ] Implement claim tracking and limits
 - [ ] Write integration tests
 
 ### Deliverables
-- Complete NFT token system
-- Provider management infrastructure
-- Registry pattern implementation
+- Entitlement distribution system
+- Provider management (minimal but extensible)
+- User claim tracking
 
-### Success Criteria
-- Multi-provider token minting works
-- Soulbound mechanics properly enforced
-- Registry correctly manages addresses
-
-## Phase 3: Economic Engine (Weeks 5-7)
-
-### Goals
-- Implement core economic mechanics
-- Create pool and pricing systems
-- Build entitlement distribution
+## Phase 4: Pool & Treasury (Week 6)
 
 ### Tasks
-
-#### Week 5: Entitlement System
-- [ ] Implement EntitlementManager
-- [ ] Create CRON creation logic
-- [ ] Build expiry processing system
-- [ ] Implement time-based restrictions
-
-#### Week 6: Sponsorship Modules
-- [ ] Implement AdvertiserModule
-- [ ] Implement VendorModule
-- [ ] Create subsidy/premium mechanics
-- [ ] Build sponsored CRON creation
-
-#### Week 7: Pool & Pricing
-- [ ] Implement SimpleCRONPool (AMM)
-- [ ] Create DynamicFeeManager
-- [ ] Build inventory tracking system
-- [ ] Implement price discovery mechanics
+- [ ] Implement SimpleCRONPool (starts closed)
+- [ ] Add WEAVE accumulation from expiries
+- [ ] Implement price floor maintenance
+- [ ] Create Treasury contract
+- [ ] Add manual reconciliation functions
+- [ ] Implement getDYEPrice calculation
 
 ### Deliverables
-- Complete entitlement distribution system
-- Working sponsorship mechanics
-- Functional AMM pool with dynamic pricing
+- AMM pool contract (closed initially)
+- Price floor mechanism
+- Treasury with manual admin controls
+- DYE price = hTUSD supply / DYE supply
 
-### Success Criteria
-- Users can claim entitlements every 6 hours
-- Sponsored CRONs properly track subsidies/premiums
-- Pool correctly prices based on inventory
-
-## Phase 4: Integration Layer (Weeks 8-9)
-
-### Goals
-- Complete smart contract integration
-- Implement backend connection points
-- Create monitoring systems
+## Phase 5: Testing & Integration (Week 7)
 
 ### Tasks
-
-#### Week 8: Contract Integration
-- [ ] Complete WeaveFactory orchestration
-- [ ] Implement Treasury contract
-- [ ] Create batch processing functions
-- [ ] Build emergency pause systems
-
-#### Week 9: Backend Interfaces
-- [ ] Create event emission system
-- [ ] Implement oracle interfaces
-- [ ] Build backend callback mechanisms
-- [ ] Create admin functions
-
-### Deliverables
-- Fully integrated smart contract system
-- Backend-ready interfaces
-- Administrative tools
-
-### Success Criteria
-- End-to-end flow works on testnet
-- Events properly emitted for indexing
-- Admin functions properly secured
-
-## Phase 5: Testing & Security (Weeks 10-12)
-
-### Goals
-- Comprehensive testing coverage
-- Security audit preparation
-- Performance optimization
-
-### Tasks
-
-#### Week 10: Testing Suite
-- [ ] Write comprehensive unit tests
+#### Testing
+- [ ] Write comprehensive unit tests (>95% coverage)
 - [ ] Create integration test scenarios
 - [ ] Implement invariant testing
-- [ ] Build fuzzing tests
-
-#### Week 11: Security Hardening
-- [ ] Internal security review
+- [ ] Add fuzzing tests for edge cases
 - [ ] Gas optimization pass
-- [ ] Implement circuit breakers
-- [ ] Create migration scripts
 
-#### Week 12: Audit Preparation
-- [ ] Documentation cleanup
-- [ ] Prepare audit package
+#### Security
+- [ ] Internal security review
 - [ ] Fix any identified issues
-- [ ] Create deployment scripts
+- [ ] Implement circuit breakers
+- [ ] Add emergency pause mechanisms
 
 ### Deliverables
-- Complete test suite with >95% coverage
-- Security audit package
-- Optimized contracts
+- Complete test suite
+- Security review completed
+- Gas costs optimized
+- Deployment scripts ready
 
-### Success Criteria
-- All tests passing
-- Gas costs within acceptable ranges
-- No critical vulnerabilities found
-
-## Phase 6: Deployment (Weeks 13-14)
+## Phase 6: Soft Launch (Week 8)
 
 ### Goals
-- Deploy to testnet
-- Conduct final testing
-- Prepare for mainnet
+- Deploy with pool closed
+- Enable entitlements only
+- Gather real cost data
+- Build WEAVE inventory
 
 ### Tasks
-
-#### Week 13: Testnet Deployment
 - [ ] Deploy all contracts to testnet
-- [ ] Verify all contracts
-- [ ] Run integration tests on testnet
-- [ ] Set up monitoring
+- [ ] Configure with pool closed
+- [ ] Enable entitlement claims only
+- [ ] Monitor DYE consumption
+- [ ] Track actual AI costs
+- [ ] Accumulate expired WEAVEs
 
-#### Week 14: Mainnet Preparation
-- [ ] Address audit findings
-- [ ] Final contract updates
-- [ ] Prepare mainnet deployment
-- [ ] Create operational runbooks
-
-### Deliverables
-- Live testnet deployment
-- Verified contracts
-- Operational documentation
+### Metrics to Track
+- Actual DYE per operation
+- Real OpenAI costs
+- Expiry rate
+- User behavior patterns
+- hTUSD accumulation rate
 
 ### Success Criteria
-- Testnet deployment stable for 7 days
-- All audit findings addressed
-- Mainnet deployment plan approved
+- System stable for 7 days
+- DYE price stabilized
+- Sufficient WEAVE inventory (>100)
+- Cost model validated
 
-## Phase 7: Backend Development (Parallel Track)
+## Phase 7: Pool Opening (Week 9)
 
-### Goals
-- Build backend processing system
-- Integrate with AI services
-- Create monitoring dashboard
+### Prerequisites
+- Minimum 100 WEAVE in reserve
+- Stable DYE price established
+- Cost data analyzed
 
-### Tasks (Weeks 5-12, parallel)
-- [ ] Set up Node.js backend
-- [ ] Integrate OpenAI API
-- [ ] Build IPFS integration
-- [ ] Create job queue system
-- [ ] Implement cost tracking
-- [ ] Build admin dashboard
-- [ ] Create monitoring systems
+### Tasks
+- [ ] Review accumulated data
+- [ ] Set initial pool parameters
+- [ ] Open SimpleCRONPool for trading
+- [ ] Monitor price floor mechanism
+- [ ] Enable pool trading features
+- [ ] Document pool mechanics
 
 ### Deliverables
-- Working backend system
-- AI integration complete
+- Pool opened with inventory
+- Trading enabled
+- Price floor active
 - Monitoring dashboard
+
+## Phase 8: Full Production (Week 10)
+
+### Tasks
+- [ ] Enable advertiser CRON creation
+- [ ] Enable vendor CRON creation
+- [ ] Activate distribution fees
+- [ ] Begin monthly reconciliation cycle
+- [ ] Full monitoring suite
+- [ ] User documentation
+
+### Launch Checklist
+- [ ] All features operational
+- [ ] Backend fully integrated
+- [ ] Monitoring active
+- [ ] Documentation complete
+- [ ] Support channels ready
 
 ## Technical Milestones
 
-### Milestone 1: Token System Complete (Week 4)
-- All 5 tokens implemented and tested
-- Provider registry functional
-- Basic interactions working
+### Milestone 1: Token System Complete (Week 2)
+- All 6 tokens implemented
+- Soulbound WEAVE enforced
+- Token ID structure working
 
-### Milestone 2: Economic Model Live (Week 7)
+### Milestone 2: Core Flows Working (Week 4)
+- Entitlement → FIBER flow complete
+- All CRON types functional
+- Expiry compaction working
+
+### Milestone 3: Economic Model Live (Week 6)
+- DYE price calculation working
+- hTUSD tracking costs
+- Treasury receiving revenue
+
+### Milestone 4: Soft Launch Success (Week 8)
 - Entitlements distributing
-- Sponsorships working
-- Pool providing liquidity
+- Cost data gathered
+- WEAVE inventory building
 
-### Milestone 3: Testnet Launch (Week 13)
-- Full system deployed
-- Backend connected
-- End-to-end flows working
+### Milestone 5: Full Launch (Week 10)
+- Pool trading active
+- Sponsors integrated
+- All features operational
 
-### Milestone 4: Mainnet Ready (Week 16)
-- Audit complete
-- All issues resolved
-- Production deployment approved
+## Resource Requirements
+
+### Development Team
+- **Lead Solidity Developer**: Full-time
+- **Smart Contract Developer**: Full-time
+- **Backend Developer**: Part-time from Week 4
+- **DevOps/Testing**: Part-time throughout
+
+### Infrastructure
+- Foundry development environment
+- Testnet ETH for deployments
+- IPFS/Pinata for metadata
+- OpenAI API credits for testing
+- Monitoring services (Tenderly)
+
+### Budget Estimates
+- Development: $80-100k (2-3 developers, 10 weeks)
+- Audit: $20-30k (focused audit after soft launch)
+- Infrastructure: $3-5k (testing period)
+- Buffer: 20% contingency
 
 ## Risk Mitigation
 
 ### Technical Risks
 | Risk | Mitigation |
 |------|------------|
-| Smart contract bugs | Extensive testing, formal verification for critical paths |
-| Gas costs too high | Early optimization, consider L2-specific optimizations |
-| Oracle failures | Fallback mechanisms, manual override capabilities |
-| Backend scalability | Queue system, horizontal scaling preparation |
+| Smart contract bugs | Extensive testing, soft launch period |
+| Gas costs too high | Optimization pass, L2 deployment |
+| Pool manipulation | Price floor, closed initial period |
+| Cost overruns | Platform absorbs as growth investment |
 
-### Timeline Risks
+### Economic Risks
 | Risk | Mitigation |
 |------|------------|
-| Audit delays | Book auditor early, have backup options |
-| Integration issues | Parallel development tracks, early integration tests |
-| Scope creep | Clear phase boundaries, defer nice-to-haves |
+| DYE price instability | Soft launch to gather data |
+| Insufficient WEAVE liquidity | Build inventory before pool opens |
+| hTUSD deficit growth | Revenue tracking, monthly reconciliation |
 
-## Resource Requirements
+### Operational Risks
+| Risk | Mitigation |
+|------|------------|
+| Backend failures | Queue system, retry logic |
+| Provider outages | Minimal registry for future providers |
+| User adoption | Free entitlements drive usage |
 
-### Development Team
-- **Lead Solidity Developer**: Full-time
-- **Backend Developer**: Full-time from Week 5
-- **Smart Contract Developer**: Full-time
-- **DevOps/Testing**: Part-time throughout
+## Testing Strategy
 
-### Infrastructure
-- Development environment (Foundry, Hardhat)
-- Testnet ETH for deployments
-- IPFS node or Pinata subscription
-- OpenAI API credits for testing
-- Monitoring services (Tenderly, OpenZeppelin Defender)
+### Unit Testing (Continuous)
+- Each function tested independently
+- Edge cases covered
+- Gas consumption tracked
 
-### Budget Estimates
-- Development: $150-200k (3-4 developers, 4 months)
-- Audit: $30-50k (depending on firm and scope)
-- Infrastructure: $5-10k (testing and initial operations)
-- Buffer: 20% contingency
+### Integration Testing (Week 7)
+- Full user flows
+- Multi-contract interactions
+- Event emission verification
 
-## Definition of Done
+### Soft Launch Testing (Week 8)
+- Real-world usage patterns
+- Cost model validation
+- Performance monitoring
 
-### For Each Phase
-- [ ] All code written and reviewed
-- [ ] Unit tests achieving >95% coverage
-- [ ] Integration tests passing
-- [ ] Documentation updated
-- [ ] Gas optimization completed
-- [ ] Security considerations addressed
+### Security Testing
+- Reentrancy tests
+- Access control verification
+- Invariant testing
+- Fuzzing for edge cases
 
-### For Overall Project
-- [ ] All contracts deployed and verified
-- [ ] Backend system operational
-- [ ] Monitoring in place
-- [ ] Documentation complete
-- [ ] Audit passed
-- [ ] Operational runbooks created
+## Deployment Strategy
+
+### Testnet Deployment (Week 7)
+```bash
+forge script script/Deploy.s.sol --rpc-url $TESTNET_RPC --broadcast --verify
+```
+
+### Mainnet Deployment (Week 10)
+1. Deploy with multisig as owner
+2. Verify all contracts
+3. Configure roles and permissions
+4. Transfer ownership to multisig
+5. Enable features progressively
+
+## Success Metrics
+
+### Technical Metrics
+- Gas cost per FIBER: <300,000 gas
+- Transaction success rate: >99.9%
+- System uptime: >99.5%
+- Test coverage: >95%
+
+### Economic Metrics
+- DYE price stability: <10% daily variance
+- Pool price floor: Always maintained
+- hTUSD/TUSD ratio: Trending positive
+- Distribution fee collection: 100% success
+
+### User Metrics (Post-Launch)
+- Daily active users
+- Entitlement claim rate
+- FIBER creation rate
+- Pool trading volume
+
+## Key Decisions Made
+
+Based on protocol clarifications:
+1. **Pool starts closed**: Build inventory first
+2. **WEAVE always soulbound**: No exceptions
+3. **No auto-burns**: Manual monthly reconciliation
+4. **DYE price formula**: hTUSD supply / DYE supply
+5. **Relative timing**: 6-hour smooth intervals
+6. **Expiry compaction**: Automatic during operations
+7. **Provider registry**: Minimal but ready for expansion
+8. **Price floor**: Mint hTUSD + burn DYE when needed
 
 ## Next Steps
 
 ### Immediate Actions (This Week)
 1. Set up development environment
-2. Create GitHub repository structure
+2. Create GitHub repository
 3. Initialize Foundry project
-4. Begin Phase 1 implementation
+4. Begin token implementation
 
 ### Planning Actions
-1. Book security audit slot
-2. Secure development resources
-3. Set up project management tools
-4. Create communication channels
-
-## Success Metrics
-
-### Technical Metrics
-- Gas cost per FIBER: <200,000 gas
-- Transaction success rate: >99.9%
-- System uptime: >99.5%
-- Test coverage: >95%
-
-### Business Metrics (Post-Launch)
-- Daily active users
-- FIBER creation rate
-- Platform revenue vs costs
-- Inventory turnover rate
+1. Finalize team assignments
+2. Set up project management
+3. Create communication channels
+4. Schedule weekly sync meetings
 
 ## Appendix: Development Checklist
 
 ### Smart Contract Checklist
-- [ ] Use latest Solidity version (0.8.20+)
+- [ ] Use Solidity 0.8.20+
 - [ ] Implement custom errors
-- [ ] Optimize storage layout
+- [ ] Pack structs efficiently
 - [ ] Use events for logging
-- [ ] Implement access control
-- [ ] Add emergency pause
-- [ ] Include reentrancy guards
+- [ ] Add access control
+- [ ] Include emergency pause
+- [ ] Implement reentrancy guards
 - [ ] Validate all inputs
-- [ ] Handle all edge cases
 - [ ] Document with NatSpec
 
 ### Testing Checklist
@@ -382,9 +377,8 @@ forge install OpenZeppelin/openzeppelin-contracts-upgradeable
 - [ ] Invariant tests for economics
 - [ ] Fuzzing for edge cases
 - [ ] Gas profiling
-- [ ] Mainnet fork testing
+- [ ] Testnet testing
 - [ ] Load testing
-- [ ] Failure scenario testing
 
 ### Deployment Checklist
 - [ ] Contracts compiled with optimization
@@ -393,9 +387,8 @@ forge install OpenZeppelin/openzeppelin-contracts-upgradeable
 - [ ] Admin keys secured (multisig)
 - [ ] Monitoring configured
 - [ ] Incident response plan
-- [ ] Rollback plan prepared
 - [ ] Documentation published
 
 ---
 
-*This implementation plan is a living document and should be updated as the project progresses and new information becomes available.*
+*This implementation plan is based on the clarified protocol design in TDD.md v2.0 and should be updated as development progresses.*
