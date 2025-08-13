@@ -75,78 +75,104 @@ WeaveFactory (Main)
 
 ## 3. Token Specifications
 
-### 3.1 CRON Token (Wrapper)
+### 3.1 CRON Token (ERC-721 NFT)
 ```solidity
-contract CRONToken {
-    struct CRON {
-        uint256 id;
-        uint256 weaveId;
-        uint256 dyeAmount;
+contract CRONToken is ERC721 {
+    struct CRONData {
+        uint256 providerId;       // Provider who can process this
+        uint256 dyeAmount;        // Computational units bundled
         uint256 monetaryValue;    // USDC or hUSDC amount
         bool isSubsidy;           // true = USDC subsidy, false = hUSDC premium
-        address recipient;
-        address sponsor;
-        uint256 expiryTime;
-        bytes metadata;           // Sponsor branding/style
+        address sponsor;          // Who created/paid for this
+        uint256 expiryTime;       // 24-hour expiry timestamp
+        bytes metadata;           // Sponsor branding/style/requirements
     }
     
-    mapping(uint256 => CRON) public crons;
+    mapping(uint256 => CRONData) public cronData;
     
     // Events
-    event CRONCreated(uint256 indexed id, address indexed recipient, uint256 expiry);
-    event CRONSpun(uint256 indexed id, address indexed user);
-    event CRONExpired(uint256 indexed id, uint256 weaveReturned, uint256 dyeReturned);
+    event CRONCreated(uint256 indexed tokenId, address indexed recipient, uint256 expiry);
+    event CRONSpun(uint256 indexed tokenId, address indexed user);
+    event CRONExpired(uint256 indexed tokenId, uint256 dyeReturned);
+    
+    function mint(address to, CRONData memory data) external returns (uint256);
+    function spin(uint256 tokenId) external;
+    function processExpired(uint256 tokenId) external;
 }
 ```
 
-### 3.2 WEAVE Token (Soulbound ERC-721)
+### 3.2 WEAVE Token (ERC-1155 Semi-Fungible + Soulbound)
 ```solidity
-contract WEAVEToken is ERC721, Soulbound {
-    struct WEAVEData {
-        uint256 id;
-        address owner;
+contract WEAVEToken is ERC1155, ERC5192 {
+    struct WEAVEMetadata {
+        uint256 providerId;       // Which provider issued this
         uint256 createdAt;
-        uint256 cronId;           // Source CRON
+        uint256 cronId;           // Source CRON NFT
         SponsorType sponsorType;
         bytes sponsorData;
+        bool locked;              // Soulbound flag
     }
     
-    // Soulbound: Override transfer functions
+    // Token ID = (providerId << 128) | uniqueId
+    mapping(uint256 => WEAVEMetadata) public weaveMetadata;
+    mapping(address => mapping(uint256 => bool)) public soulbound;
+    
+    // ERC5192 Soulbound implementation
+    function locked(uint256 tokenId) external view returns (bool) {
+        return weaveMetadata[tokenId].locked;
+    }
+    
     function _beforeTokenTransfer(
+        address operator,
         address from,
         address to,
-        uint256 tokenId
+        uint256[] memory ids,
+        uint256[] memory amounts,
+        bytes memory data
     ) internal override {
-        require(from == address(0), "WEAVE: Soulbound");
+        for (uint i = 0; i < ids.length; i++) {
+            if (from != address(0) && weaveMetadata[ids[i]].locked) {
+                revert("WEAVE: Soulbound token");
+            }
+        }
     }
     
-    function mintSoulbound(address to, uint256 cronId) external returns (uint256);
-    function burn(uint256 tokenId) external;
+    function mint(address to, uint256 providerId, uint256 cronId, bool makeSoulbound) external returns (uint256);
+    function burn(address from, uint256 tokenId, uint256 amount) external;
 }
 ```
 
-### 3.3 FIBER Token (ERC-721 NFT)
+### 3.3 FIBER Token (ERC-1155 Collection NFTs)
 ```solidity
-contract FIBERToken is ERC721, ERC721Metadata {
+contract FIBERToken is ERC1155, ERC1155Metadata {
     struct FIBERMetadata {
-        uint256 id;
+        uint256 providerId;       // Which provider created this
+        uint256 collectionId;     // Provider's collection
         address creator;
         uint256 createdAt;
         string ipfsHash;          // Comic content
-        uint256 dyeUsed;          // Computational units
-        uint256 costUSDC;         // Actual cost
+        uint256 dyeUsed;          // Computational units consumed
+        uint256 costUSDC;         // Actual USD cost
         SponsorType sponsorType;
         address sponsor;
         string journalText;       // Original input
     }
     
-    mapping(uint256 => FIBERMetadata) public fibers;
+    // Token ID = (providerId << 192) | (collectionId << 128) | uniqueId
+    mapping(uint256 => FIBERMetadata) public fiberMetadata;
     
+    // Each FIBER is unique (amount always = 1)
     function mint(
         address to,
+        uint256 providerId,
+        uint256 collectionId,
         string memory ipfsHash,
         FIBERMetadata memory metadata
     ) external returns (uint256);
+    
+    function uri(uint256 tokenId) public view override returns (string memory) {
+        return fiberMetadata[tokenId].ipfsHash;
+    }
 }
 ```
 
@@ -200,8 +226,16 @@ contract WeaveFactory {
     hUSDCToken public husdcToken;
     IERC20 public usdcToken;
     
-    uint256 public constant STANDARD_DYE = 2500;
-    uint256 public constant PREMIUM_DYE = 5000;
+    // Provider registry for variable DYE consumption
+    mapping(uint256 => ProviderConfig) public providers;
+    
+    struct ProviderConfig {
+        string name;
+        address operator;
+        uint256 baseDyeConsumption;  // e.g., 2500 for standard
+        uint256 premiumMultiplier;   // e.g., 2x for premium
+        bool active;
+    }
     uint256 public constant CRON_DURATION = 24 hours;
     
     // Main functions
@@ -508,15 +542,16 @@ contract PriceOracle {
 
 ### 8.1 Storage Optimization
 ```solidity
-// Pack struct variables
-struct CRON {
-    uint128 weaveId;      // Sufficient for ID
-    uint128 dyeAmount;    // Sufficient for DYE
-    uint64 expiryTime;    // Sufficient for timestamp
-    uint64 monetaryValue; // Sufficient for reasonable USDC
-    address recipient;    // 20 bytes
-    bool isSubsidy;       // 1 byte
-    // Total: 2 storage slots instead of 6
+// Pack struct variables for ERC-721 metadata
+struct CRONData {
+    uint128 providerId;   // Which provider (Slot 1)
+    uint128 dyeAmount;    // Computational units (Slot 1)
+    uint64 expiryTime;    // Timestamp (Slot 2)
+    uint64 monetaryValue; // USDC amount (Slot 2)
+    uint32 complexity;    // Complexity multiplier (Slot 2)
+    address sponsor;      // 20 bytes (Slot 3)
+    bool isSubsidy;       // 1 byte (Slot 3)
+    // Total: 3 storage slots, optimized for NFT storage
 }
 ```
 
