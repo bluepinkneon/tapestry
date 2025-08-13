@@ -28,7 +28,7 @@ contract FIBERToken is ERC1155, AccessControl {
         uint64 createdAt; // Creation timestamp
         string ipfsHash; // Comic content on IPFS
         uint128 dyeUsed; // Computational units consumed
-        uint64 costUSDC; // Actual USD cost (6 decimals)
+        uint64 costTUSD; // Actual USD cost (6 decimals)
         SponsorType sponsorType; // Type of sponsorship
         address sponsor; // Sponsor address (if any)
         string journalText; // Original journal entry
@@ -231,7 +231,7 @@ contract FIBERToken is ERC1155, AccessControl {
             createdAt: uint64(block.timestamp),
             ipfsHash: ipfsHash,
             dyeUsed: metadata.dyeUsed,
-            costUSDC: metadata.costUSDC,
+            costTUSD: metadata.costTUSD,
             sponsorType: metadata.sponsorType,
             sponsor: metadata.sponsor,
             journalText: metadata.journalText

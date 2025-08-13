@@ -1,0 +1,23 @@
+repos:
+  - repo: local
+    hooks:
+      - id: solhint
+        name: Solhint Linter
+        entry: solhint
+        language: system
+        files: \.sol$
+        args: ['--config', '.solhint.json']
+        
+      - id: forge-fmt
+        name: Forge Format
+        entry: forge fmt --check
+        language: system
+        pass_filenames: false
+        files: \.sol$
+        
+      - id: forge-build
+        name: Forge Build
+        entry: forge build
+        language: system
+        pass_filenames: false
+        files: \.sol$

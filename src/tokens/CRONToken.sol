@@ -16,10 +16,10 @@ contract CRONToken is ERC721, ERC721Enumerable, AccessControl {
         uint128 providerId; // Which provider can process this
         uint128 dyeAmount; // Computational units bundled
         uint64 expiryTime; // 24-hour expiry timestamp
-        uint64 monetaryValue; // USDC or hUSDC amount
+        uint64 monetaryValue; // TUSD or hTUSD amount
         uint32 complexity; // Complexity multiplier for DYE
         address sponsor; // Who created/paid for this
-        bool isSubsidy; // true = USDC subsidy, false = hUSDC premium
+        bool isSubsidy; // true = TUSD subsidy, false = hTUSD premium
         bytes metadata; // Sponsor branding/requirements
     }
 

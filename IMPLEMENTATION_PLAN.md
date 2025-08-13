@@ -53,7 +53,8 @@ forge install OpenZeppelin/openzeppelin-contracts-upgradeable
 
 #### Week 2: Core Tokens
 - [ ] Implement DYEToken (ERC-20)
-- [ ] Implement hUSDCToken (ERC-20)
+- [ ] Implement TUSDToken (ERC-20)
+- [ ] Implement hTUSDToken (ERC-20)
 - [ ] Implement CRONToken (ERC-721)
 - [ ] Write unit tests for each token
 
