@@ -8,8 +8,10 @@
 
 Weave is an autobiographical journaling app on the Tapestry L2 blockchain that transforms user text into comic-style visual stories (FIBERs). The platform operates on a break-even model with a unique token economy where expired user entitlements become the platform's commercial inventory.
 
-### Key Innovation
-**Expired WEAVEs are not waste - they're the product.** The platform monetizes user procrastination by reselling expired entitlements to advertisers and vendors.
+### Key Innovations
+1. **Expired WEAVEs are not waste - they're the product.** The platform monetizes user procrastination by reselling expired entitlements to advertisers and vendors.
+2. **Platform works at ANY utilization rate.** At low utilization, expired inventory drives revenue. At 100% utilization, the platform becomes a value marketplace.
+3. **Advertiser subsidies eliminate deficit.** When users choose subsidized wraps, the USDC directly burns hUSDC, reducing platform costs.
 
 ## Token Architecture
 
@@ -116,12 +118,27 @@ Purpose: Resource management
 ```
 
 ### Inventory Economics
+
+#### Standard Operation (90% Utilization)
 ```
 Daily Flow (10,000 users):
 - 40,000 WEAVEs created (entitlements)
 - 36,000 spun (90% utilization) → FIBERs
 - 4,000 expire → Platform inventory
 - Inventory sold to advertisers/vendors
+```
+
+#### Zero Inventory Operation (100% Utilization)
+```
+Daily Flow (10,000 users):
+- 40,000 WEAVEs created (entitlements)
+- 40,000 spun (100% utilization) → FIBERs
+- 0 expire → No inventory
+
+Platform still profitable via:
+- Distribution fees from advertisers/vendors
+- Value marketplace (users buy wraps for features, not scarcity)
+- Deficit reduction from subsidies
 ```
 
 ## Sponsorship System
@@ -152,6 +169,11 @@ Advertiser pays:
 - DYE costs
 - Subsidy amount
 User experience: Free or even profitable (if subsidy > market price)
+
+Special mechanism:
+- When used, subsidy USDC burns equivalent hUSDC
+- Directly reduces platform deficit
+- Each advertiser FIBER reduces costs by (subsidy - actual cost)
 ```
 
 #### 4. Vendor CRON
@@ -309,6 +331,16 @@ function processExpiredCRON(cronId) {
 - **No pre-minting**: Resources created on-demand
 - **Gas efficient**: Minimal on-chain storage
 
+### 6. Resilient at Any Utilization
+- **Low utilization (70%)**: Monetize expired inventory
+- **High utilization (95%)**: Scarcity drives premium pricing
+- **Perfect utilization (100%)**: Platform becomes value marketplace
+
+### 7. Deficit Elimination via Subsidies
+- **Advertiser wraps burn hUSDC**: Each use reduces platform deficit
+- **Self-funding mechanism**: Popular advertisers literally pay off platform costs
+- **Win-win**: Users get free content, platform eliminates debt
+
 ## Platform Metrics & Monitoring
 
 ### Key Performance Indicators
@@ -377,7 +409,10 @@ The Weave ecosystem represents a novel approach to sustainable blockchain applic
 - **Vendors**: Platform for premium services
 - **Ecosystem**: Transparent, on-chain economics
 
-The key innovation is recognizing that in a time-based entitlement system, **expiry is not a bug - it's the feature that powers the entire economy**.
+The platform's genius lies in three key realizations:
+1. **Expiry is not a bug - it's the feature that powers the entire economy**
+2. **The platform works at ANY utilization rate** - from inventory sales at low utilization to value marketplace at 100%
+3. **Advertiser subsidies don't just bring revenue - they eliminate platform deficit directly**
 
 ---
 
