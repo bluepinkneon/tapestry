@@ -264,7 +264,49 @@ contract SimpleCRONPool {
 }
 ```
 
-### 3.5 Treasury
+### 3.5 BucketManager
+Manages 8 buckets with 6-hour rotation for automatic TUSD/hTUSD balancing.
+
+```solidity
+contract BucketManager {
+    struct Bucket {
+        uint256 tusdCollected;      // Revenue in this 6h period
+        uint256 htusdGenerated;     // Deficit in this 6h period
+        uint256 dyeConsumed;        // DYE used for operations
+        uint256 dyeReturned;        // DYE from expired CRONs
+        uint256 startTimestamp;     // Bucket start time
+        uint256 expiryCount;        // Expired CRONs processed
+        uint256 entitlementsClaimed; // Entitlements in period
+        uint256 subsidiesExpired;   // TUSD from expired advertiser CRONs
+    }
+    
+    Bucket[8] public buckets;
+    uint8 public currentBucketIndex;
+    uint256 public constant BUCKET_DURATION = 6 hours;
+    
+    // Automatic rotation every 6 hours
+    function rotateBucketIfNeeded() public {
+        if (block.timestamp >= lastRotation + BUCKET_DURATION) {
+            currentBucketIndex = (currentBucketIndex + 1) % 8;
+            delete buckets[currentBucketIndex]; // Clear 48h old data
+            buckets[currentBucketIndex].startTimestamp = block.timestamp;
+        }
+    }
+    
+    // 48-hour sliding window analytics
+    function getWindowTotals() external view returns (
+        uint256 totalTUSD,
+        uint256 totalHTUSD,
+        uint256 totalDYEConsumed,
+        uint256 totalDYEReturned
+    );
+    
+    // Automatic balancing during compaction
+    // Expired subsidies automatically burn hTUSD deficit
+}
+```
+
+### 3.6 Treasury
 Manages platform funds with manual admin control.
 
 ```solidity
@@ -330,13 +372,17 @@ contract Treasury {
 5. If price drops below floor: mint hTUSD + burn DYE
 ```
 
-### 4.5 Expiry Compaction
+### 4.5 Expiry Compaction with Automatic Balancing
 ```
 1. CRONs expire after 24 hours if not spun
 2. No separate expiry transactions needed
 3. Any WEAVE→FIBER operation triggers compaction
-4. Expired CRONs return WEAVE to pool
-5. Wrapped TUSD/hTUSD in expired CRONs is lost
+4. Expired CRONs return WEAVE to pool, DYE to circulation
+5. Expired advertiser subsidies (TUSD) automatically:
+   - Burn equivalent hTUSD deficit (automatic reconciliation)
+   - Excess goes to treasury as platform revenue
+   - Tracked in current 6-hour bucket
+6. All metrics stored in 8-bucket sliding window (48 hours)
 ```
 
 ## 5. Revenue Model
@@ -357,9 +403,16 @@ All costs mint hTUSD (never burn automatically):
 3. **Pool Interventions**: Maintaining price floor
 4. **Overruns**: When actual cost > expected DYE value
 
-### 5.3 Monthly Reconciliation
-- Admin/CFO reviews TUSD balance vs hTUSD deficit
-- Manually burns appropriate amounts
+### 5.3 Reconciliation Approach
+**Automatic Micro-Reconciliation**:
+- Expired advertiser subsidies automatically burn hTUSD
+- Happens during normal WEAVE→FIBER operations
+- Tracked in 6-hour buckets for analytics
+- Continuous deficit reduction
+
+**Manual Monthly Reconciliation**:
+- Admin/CFO reviews remaining balances
+- Makes strategic decisions on reserves
 - Maintains clean books for accounting
 - DYE price remains pure cost metric
 

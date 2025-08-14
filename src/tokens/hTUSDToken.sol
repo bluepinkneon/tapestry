@@ -6,14 +6,15 @@ import { AccessControl } from "@openzeppelin/contracts/access/AccessControl.sol"
 
 /**
  * @title hTUSDToken (Tapestry USD Hole)
- * @dev ERC20 token tracking the platform's deficit/costs
- * Minted when FIBERs are created (representing actual USD costs)
- * Burned when revenue is received (reducing deficit)
+ * @dev ERC20 token tracking the platform's operational deficit
+ * Only mints, never auto-burns
+ * Represents total platform costs incurred
+ * Admin manually burns during monthly reconciliation
  */
 contract hTUSDToken is ERC20, AccessControl {
     // Constants
     bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
-    bytes32 public constant BURNER_ROLE = keccak256("BURNER_ROLE");
+    bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE"); // Only admin can burn for reconciliation
 
     // State variables
     uint256 public totalDeficit; // Total costs incurred
@@ -39,39 +40,36 @@ contract hTUSDToken is ERC20, AccessControl {
     constructor() ERC20("Tapestry USD Hole", "hTUSD") {
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
         _grantRole(MINTER_ROLE, msg.sender);
-        _grantRole(BURNER_ROLE, msg.sender);
+        _grantRole(ADMIN_ROLE, msg.sender);
     }
 
     /**
-     * @dev Mints hTUSD when costs are incurred
+     * @dev Mints hTUSD when costs are incurred (factory only)
      * @param amount Amount of USD cost (in 6 decimals like TUSD)
-     * @param category Cost category for tracking
      */
-    function mintDeficit(uint256 amount, string calldata category) external onlyRole(MINTER_ROLE) {
+    function mint(uint256 amount) external onlyRole(MINTER_ROLE) {
         if (amount == 0) revert ZeroAmount();
 
         totalDeficit += amount;
-        costsByCategory[category] += amount;
 
-        // Mint to treasury or designated holder
+        // Mint to treasury
         _mint(msg.sender, amount);
 
-        emit DeficitIncurred(amount, category);
-        emit NetPositionChanged(getNetPosition());
+        emit DeficitIncurred(amount, "operational_cost");
     }
 
     /**
-     * @dev Burns hTUSD when revenue covers costs
-     * @param amount Amount of deficit to cover
-     * @param source Revenue source (e.g., "distribution_fee", "advertiser_subsidy")
+     * @dev Burns hTUSD during monthly reconciliation (admin only)
+     * @param amount Amount of deficit to burn
+     * @param source Reconciliation note
      */
-    function burnDeficit(uint256 amount, string calldata source) external onlyRole(BURNER_ROLE) {
+    function reconcileBurn(uint256 amount, string calldata source) external onlyRole(ADMIN_ROLE) {
         if (amount == 0) revert ZeroAmount();
-        if (amount > totalSupply()) revert InsufficientDeficit(amount, totalSupply());
+        if (amount > balanceOf(msg.sender)) revert InsufficientDeficit(amount, balanceOf(msg.sender));
 
         totalCovered += amount;
 
-        // Burn from treasury or designated holder
+        // Burn from admin/treasury
         _burn(msg.sender, amount);
 
         emit DeficitCovered(amount, source);

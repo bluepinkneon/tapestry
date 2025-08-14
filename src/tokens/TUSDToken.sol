@@ -54,35 +54,37 @@ contract TUSDToken is ERC20, AccessControl, Pausable {
     }
 
     /**
-     * @dev Mints TUSD when USD is deposited to company bank
+     * @dev Mints TUSD based on bank reserves
      * @param to Address to receive the tokens
      * @param amount Amount of TUSD to mint (6 decimals)
-     * @param reason Reason for minting (e.g., "bank_deposit", "initial_liquidity")
      */
-    function mint(address to, uint256 amount, string calldata reason) external onlyRole(MINTER_ROLE) whenNotPaused {
+    function mint(address to, uint256 amount) external onlyRole(MINTER_ROLE) whenNotPaused {
         if (amount == 0) revert ZeroAmount();
         if (blacklisted[to]) revert BlacklistedAccount(to);
+        
+        // Check that minting doesn't exceed bank reserves
+        uint256 newSupply = totalSupply() + amount;
+        if (newSupply > bankReserves) {
+            revert InsufficientReserves(newSupply, bankReserves);
+        }
 
         totalMinted += amount;
         _mint(to, amount);
 
-        emit Minted(to, amount, reason);
+        emit Minted(to, amount, "platform_revenue");
     }
 
     /**
-     * @dev Burns TUSD when USD is withdrawn from company bank
-     * @param from Address to burn tokens from
+     * @dev Burns TUSD (admin only for reconciliation)
      * @param amount Amount of TUSD to burn
-     * @param reason Reason for burning (e.g., "bank_withdrawal", "redemption")
      */
-    function burn(address from, uint256 amount, string calldata reason) external onlyRole(BURNER_ROLE) whenNotPaused {
+    function burn(uint256 amount) external onlyRole(BURNER_ROLE) whenNotPaused {
         if (amount == 0) revert ZeroAmount();
-        if (blacklisted[from]) revert BlacklistedAccount(from);
 
         totalBurned += amount;
-        _burn(from, amount);
+        _burn(msg.sender, amount);
 
-        emit Burned(from, amount, reason);
+        emit Burned(msg.sender, amount, "reconciliation");
     }
 
     /**

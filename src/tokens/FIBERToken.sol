@@ -21,17 +21,14 @@ contract FIBERToken is ERC1155, AccessControl {
     }
 
     // Structs
-    struct FIBERMetadata {
-        uint128 providerId; // Which provider created this
-        uint128 collectionId; // Provider's collection
-        address creator; // User who created this
-        uint64 createdAt; // Creation timestamp
-        string ipfsHash; // Comic content on IPFS
-        uint128 dyeUsed; // Computational units consumed
-        uint64 costTUSD; // Actual USD cost (6 decimals)
-        SponsorType sponsorType; // Type of sponsorship
-        address sponsor; // Sponsor address (if any)
-        string journalText; // Original journal entry
+    struct FIBERData {
+        uint16 providerId; // Which AI created this
+        address creator; // Original journal author
+        string ipfsHash; // Comic content location
+        uint256 dyeUsed; // Computational units consumed
+        uint256 costTUSD; // Actual USD cost (6 decimals)
+        address sponsor; // If sponsored
+        string journalText; // Original input (may be encrypted)
     }
 
     // Constants
@@ -42,25 +39,18 @@ contract FIBERToken is ERC1155, AccessControl {
     uint256 private _nextTokenId;
 
     // Mappings
-    mapping(uint256 tokenId => FIBERMetadata metadata) public fiberMetadata;
-    mapping(uint128 providerId => mapping(uint128 collectionId => string name)) public collectionNames;
-    mapping(uint128 providerId => bool active) public activeProviders;
+    mapping(uint256 tokenId => FIBERData data) public fiberData;
     mapping(address user => uint256 count) public userFiberCount;
-    mapping(uint128 providerId => uint256 count) public providerFiberCount;
+    mapping(uint16 providerId => uint256 count) public providerFiberCount;
 
     // Events
     event FIBERCreated(
         uint256 indexed tokenId,
         address indexed creator,
-        uint128 indexed providerId,
-        uint128 collectionId,
-        string ipfsHash
+        uint256 cost
     );
-    event CollectionCreated(uint128 indexed providerId, uint128 indexed collectionId, string name);
 
     // Custom errors
-    error InvalidProvider(uint128 providerId);
-    error InvalidCollection(uint128 providerId, uint128 collectionId);
     error ZeroAddress();
 
     /**
@@ -76,68 +66,46 @@ contract FIBERToken is ERC1155, AccessControl {
     /**
      * @dev Mints a new FIBER NFT
      * @param to Recipient of the FIBER
-     * @param providerId Provider who created this
-     * @param collectionId Collection within the provider
+     * @param weaveId Source WEAVE token ID
      * @param ipfsHash IPFS hash of the comic content
-     * @param metadata Additional metadata
+     * @param actualCost Actual cost in TUSD (6 decimals)
      */
     function mint(
         address to,
-        uint128 providerId,
-        uint128 collectionId,
-        string calldata ipfsHash,
-        FIBERMetadata calldata metadata
+        uint256 weaveId,
+        string memory ipfsHash,
+        uint256 actualCost
     )
         external
         onlyRole(MINTER_ROLE)
         returns (uint256)
     {
         if (to == address(0)) revert ZeroAddress();
-        if (!activeProviders[providerId] && providerId != 0) {
-            revert InvalidProvider(providerId);
-        }
 
-        uint256 tokenId = _generateTokenId(providerId, collectionId);
-        _storeMetadata(tokenId, to, ipfsHash, metadata);
-        _mintAndUpdate(to, tokenId, providerId);
+        uint256 tokenId = _nextTokenId++;
+        
+        // Store metadata (simplified for now)
+        fiberData[tokenId] = FIBERData({
+            providerId: 1, // OpenAI hardcoded for now
+            creator: to,
+            ipfsHash: ipfsHash,
+            dyeUsed: 0, // Will be set from WEAVE data
+            costTUSD: actualCost,
+            sponsor: address(0), // Will be set from WEAVE data
+            journalText: "" // Privacy: not stored on-chain
+        });
+        
+        // Mint the FIBER (amount always = 1)
+        _mint(to, tokenId, 1, "");
+        
+        // Update counters
+        userFiberCount[to]++;
+        providerFiberCount[1]++; // OpenAI
 
-        emit FIBERCreated(tokenId, to, providerId, collectionId, ipfsHash);
+        emit FIBERCreated(tokenId, to, actualCost);
         return tokenId;
     }
 
-    /**
-     * @dev Creates a new collection for a provider
-     * @param providerId Provider ID
-     * @param collectionId Collection ID
-     * @param name Collection name
-     */
-    function createCollection(
-        uint128 providerId,
-        uint128 collectionId,
-        string calldata name
-    )
-        external
-        onlyRole(DEFAULT_ADMIN_ROLE)
-    {
-        collectionNames[providerId][collectionId] = name;
-        emit CollectionCreated(providerId, collectionId, name);
-    }
-
-    /**
-     * @dev Activates a provider
-     * @param providerId Provider to activate
-     */
-    function activateProvider(uint128 providerId) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        activeProviders[providerId] = true;
-    }
-
-    /**
-     * @dev Deactivates a provider
-     * @param providerId Provider to deactivate
-     */
-    function deactivateProvider(uint128 providerId) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        activeProviders[providerId] = false;
-    }
 
     /**
      * @dev Returns statistics for a user
@@ -150,27 +118,11 @@ contract FIBERToken is ERC1155, AccessControl {
     }
 
     /**
-     * @dev Extracts provider ID from token ID
-     * @param tokenId Token ID to decode
-     */
-    function getProviderId(uint256 tokenId) external pure returns (uint128) {
-        return uint128(tokenId >> 192);
-    }
-
-    /**
-     * @dev Extracts collection ID from token ID
-     * @param tokenId Token ID to decode
-     */
-    function getCollectionId(uint256 tokenId) external pure returns (uint128) {
-        return uint128((tokenId >> 128) & 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF);
-    }
-
-    /**
      * @dev Returns statistics for a provider
      * @param providerId Provider to query
      */
-    function getProviderStats(uint128 providerId) external view returns (bool isActive, uint256 totalFibers) {
-        return (activeProviders[providerId], providerFiberCount[providerId]);
+    function getProviderStats(uint16 providerId) external view returns (uint256 totalFibers) {
+        return providerFiberCount[providerId];
     }
 
     /**
@@ -186,11 +138,11 @@ contract FIBERToken is ERC1155, AccessControl {
      * @param tokenId Token to get URI for
      */
     function uri(uint256 tokenId) public view override returns (string memory) {
-        FIBERMetadata memory metadata = fiberMetadata[tokenId];
+        FIBERData memory data = fiberData[tokenId];
 
         // If IPFS hash is set, return it directly
-        if (bytes(metadata.ipfsHash).length > 0) {
-            return string(abi.encodePacked("ipfs://", metadata.ipfsHash));
+        if (bytes(data.ipfsHash).length > 0) {
+            return string(abi.encodePacked("ipfs://", data.ipfsHash));
         }
 
         // Otherwise return base URI with token ID

@@ -13,13 +13,12 @@ import { AccessControl } from "@openzeppelin/contracts/access/AccessControl.sol"
 contract CRONToken is ERC721, ERC721Enumerable, AccessControl {
     // Structs
     struct CRONData {
-        uint128 providerId; // Which provider can process this
-        uint128 dyeAmount; // Computational units bundled
-        uint64 expiryTime; // 24-hour expiry timestamp
-        uint64 monetaryValue; // TUSD or hTUSD amount
-        uint32 complexity; // Complexity multiplier for DYE
-        address sponsor; // Who created/paid for this
+        uint16 providerId; // Which AI provider (starts with OpenAI = 1)
+        uint240 dyeAmount; // Computational units wrapped
+        uint256 monetaryValue; // TUSD (subsidy) or hTUSD (premium) amount
         bool isSubsidy; // true = TUSD subsidy, false = hTUSD premium
+        address sponsor; // Creator of this CRON
+        uint256 expiryTime; // Timestamp + 24 hours
         bytes metadata; // Sponsor branding/requirements
     }
 
@@ -38,10 +37,10 @@ contract CRONToken is ERC721, ERC721Enumerable, AccessControl {
 
     // Events
     event CRONCreated(
-        uint256 indexed tokenId, address indexed recipient, uint128 indexed providerId, uint256 expiryTime
+        uint256 indexed tokenId, address indexed recipient, uint16 indexed providerId, uint256 expiryTime
     );
-    event CRONSpun(uint256 indexed tokenId, address indexed user, uint128 indexed dyeUsed);
-    event CRONExpiredEvent(uint256 indexed tokenId, uint128 indexed dyeReturned);
+    event CRONSpun(uint256 indexed tokenId, address indexed user, uint240 dyeUsed);
+    event CRONExpiredEvent(uint256 indexed tokenId, uint240 dyeReturned);
 
     // Custom errors
     error CRONAlreadySpun(uint256 tokenId);
@@ -79,10 +78,10 @@ contract CRONToken is ERC721, ERC721Enumerable, AccessControl {
     }
 
     /**
-     * @dev Spins (uses) a CRON to create a WEAVE
-     * @param tokenId The CRON to spin
+     * @dev Marks a CRON as spun (used)
+     * @param tokenId The CRON to mark as spun
      */
-    function spin(uint256 tokenId) external onlyRole(FACTORY_ROLE) {
+    function markSpun(uint256 tokenId) external onlyRole(FACTORY_ROLE) {
         if (isSpun[tokenId]) revert CRONAlreadySpun(tokenId);
 
         CRONData memory data = cronData[tokenId];
